@@ -1,22 +1,18 @@
 import cv2
 import mediapipe as mp
 import math
+import time
 
 from collections import deque
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 
 
-# --------------------------------------------------
-# PATH TO POSE MODEL
-# --------------------------------------------------
+# ============================================================
+# MODEL SETUP
+# ============================================================
 
 MODEL_PATH = r"C:\Users\SKS\OneDrive\Desktop\FYP\models\pose_landmarker_full.task"
-
-
-# --------------------------------------------------
-# CREATE POSE LANDMARKER
-# --------------------------------------------------
 
 base_options = python.BaseOptions(
     model_asset_path=MODEL_PATH
@@ -31,9 +27,9 @@ options = vision.PoseLandmarkerOptions(
 pose_landmarker = vision.PoseLandmarker.create_from_options(options)
 
 
-# --------------------------------------------------
-# ANGLE FUNCTION
-# --------------------------------------------------
+# ============================================================
+# FUNCTIONS
+# ============================================================
 
 def calculate_angle(point1, point2, point3):
 
@@ -57,96 +53,149 @@ def calculate_angle(point1, point2, point3):
     return angle
 
 
-# --------------------------------------------------
-# OPEN WEBCAM
-# --------------------------------------------------
+def calculate_distance(point1, point2):
+
+    return math.sqrt(
+        (point2[0] - point1[0]) ** 2 +
+        (point2[1] - point1[1]) ** 2
+    )
+
+
+# ============================================================
+# CAMERA
+# ============================================================
 
 cap = cv2.VideoCapture(0)
 
-window_name = "Stroke Rehabilitation - Repetition Counter"
+window_name = "Stroke Rehabilitation - Movement Analysis"
 
-cv2.namedWindow(
-    window_name,
-    cv2.WINDOW_NORMAL
-)
-
-cv2.resizeWindow(
-    window_name,
-    1000,
-    700
-)
+cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+cv2.resizeWindow(window_name, 1000, 700)
 
 
-# --------------------------------------------------
+# ============================================================
 # WRIST PATH
-# --------------------------------------------------
+# ============================================================
 
 left_wrist_path = deque(maxlen=50)
 right_wrist_path = deque(maxlen=50)
 
 
-# --------------------------------------------------
+# ============================================================
 # ANGLE SMOOTHING
-# --------------------------------------------------
+# ============================================================
 
 left_angle_history = deque(maxlen=7)
 
 
-# --------------------------------------------------
+# ============================================================
 # REPETITION VARIABLES
-# --------------------------------------------------
+# ============================================================
 
 left_reps = 0
-
 left_stage = "START"
 
-# Number of frames the arm must stay in a position
 bent_frames = 0
 straight_frames = 0
 
-# Required stable frames
 REQUIRED_FRAMES = 4
 
 
-# --------------------------------------------------
+# ============================================================
+# CALIBRATION
+# ============================================================
+
+calibration_mode = False
+calibration_complete = False
+
+calibration_angles = []
+
+CALIBRATION_REPS = 5
+
+calibration_min_angle = None
+calibration_max_angle = None
+
+personal_rom = None
+
+calibration_stage = "START"
+
+calibration_bent_frames = 0
+calibration_straight_frames = 0
+
+calibration_rep_count = 0
+
+CALIBRATION_REQUIRED_FRAMES = 4
+
+
+# ============================================================
+# MOVEMENT METRICS
+# ============================================================
+
+movement_start_time = None
+movement_times = []
+
+current_rep_min_angle = None
+current_rep_max_angle = None
+
+rep_rom_values = []
+
+previous_wrist = None
+previous_time = None
+
+wrist_distances = []
+
+average_speed = 0
+
+
+# ============================================================
+# TRUNK COMPENSATION VARIABLES
+# ============================================================
+
+baseline_shoulder = None
+baseline_hip = None
+
+baseline_torso_length = None
+
+trunk_displacements = []
+
+current_rep_max_trunk_displacement = 0
+
+current_trunk_displacement = 0
+
+
+# ============================================================
 # TIMESTAMP
-# --------------------------------------------------
+# ============================================================
 
 timestamp = 0
 
 
-# --------------------------------------------------
+# ============================================================
 # MAIN LOOP
-# --------------------------------------------------
+# ============================================================
 
 while True:
 
     ret, frame = cap.read()
 
     if not ret:
+
         print("Could not access camera")
+
         break
 
-
-    # Mirror the camera
     frame = cv2.flip(frame, 1)
 
-
-    # Convert BGR → RGB
     rgb_frame = cv2.cvtColor(
         frame,
         cv2.COLOR_BGR2RGB
     )
 
-
-    # Convert to MediaPipe image
     mp_image = mp.Image(
         image_format=mp.ImageFormat.SRGB,
         data=rgb_frame
     )
 
-
-    # Detect pose
     timestamp += 1
 
     results = pose_landmarker.detect_for_video(
@@ -155,9 +204,9 @@ while True:
     )
 
 
-    # --------------------------------------------------
-    # PROCESS LANDMARKS
-    # --------------------------------------------------
+    # ========================================================
+    # PERSON DETECTED
+    # ========================================================
 
     if results.pose_landmarks:
 
@@ -166,27 +215,25 @@ while True:
         h, w, _ = frame.shape
 
 
-        # --------------------------------------------------
-        # LEFT ARM
-        # --------------------------------------------------
+        # ----------------------------------------------------
+        # UPPER BODY LANDMARKS
+        # ----------------------------------------------------
 
         left_shoulder = landmarks[11]
         left_elbow = landmarks[13]
         left_wrist = landmarks[15]
 
-
-        # --------------------------------------------------
-        # RIGHT ARM
-        # --------------------------------------------------
-
         right_shoulder = landmarks[12]
         right_elbow = landmarks[14]
         right_wrist = landmarks[16]
 
+        left_hip = landmarks[23]
+        right_hip = landmarks[24]
 
-        # --------------------------------------------------
-        # CONVERT TO PIXELS
-        # --------------------------------------------------
+
+        # ----------------------------------------------------
+        # PIXEL COORDINATES
+        # ----------------------------------------------------
 
         ls = (
             int(left_shoulder.x * w),
@@ -203,7 +250,6 @@ while True:
             int(left_wrist.y * h)
         )
 
-
         rs = (
             int(right_shoulder.x * w),
             int(right_shoulder.y * h)
@@ -219,10 +265,20 @@ while True:
             int(right_wrist.y * h)
         )
 
+        lh = (
+            int(left_hip.x * w),
+            int(left_hip.y * h)
+        )
 
-        # --------------------------------------------------
-        # CALCULATE ELBOW ANGLES
-        # --------------------------------------------------
+        rh = (
+            int(right_hip.x * w),
+            int(right_hip.y * h)
+        )
+
+
+        # ----------------------------------------------------
+        # ELBOW ANGLES
+        # ----------------------------------------------------
 
         left_angle = calculate_angle(
             ls,
@@ -236,66 +292,414 @@ while True:
             rw
         )
 
-
-        # --------------------------------------------------
-        # SMOOTH LEFT ELBOW ANGLE
-        # --------------------------------------------------
-
         left_angle_history.append(left_angle)
 
-        smooth_left_angle = sum(left_angle_history) / len(
-            left_angle_history
+        smooth_left_angle = (
+            sum(left_angle_history)
+            /
+            len(left_angle_history)
         )
 
 
-        # --------------------------------------------------
-        # STABLE REPETITION COUNTER
-        # --------------------------------------------------
+        # ====================================================
+        # TRUNK CENTER
+        # ====================================================
 
-        # BENT POSITION
-        if smooth_left_angle < 80:
+        shoulder_center = (
+            (ls[0] + rs[0]) / 2,
+            (ls[1] + rs[1]) / 2
+        )
 
-            bent_frames += 1
-            straight_frames = 0
-
-            if bent_frames >= REQUIRED_FRAMES:
-                left_stage = "BENT"
-
-
-        # STRAIGHT POSITION
-        elif smooth_left_angle > 150:
-
-            straight_frames += 1
-            bent_frames = 0
-
-            if (
-                straight_frames >= REQUIRED_FRAMES
-                and left_stage == "BENT"
-            ):
-
-                left_stage = "STRAIGHT"
-
-                left_reps += 1
+        hip_center = (
+            (lh[0] + rh[0]) / 2,
+            (lh[1] + rh[1]) / 2
+        )
 
 
-        # MIDDLE / MOVING POSITION
-        else:
+        torso_length = calculate_distance(
+            shoulder_center,
+            hip_center
+        )
 
-            bent_frames = 0
-            straight_frames = 0
+
+        # ====================================================
+        # CALIBRATION MODE
+        # ====================================================
+
+        if calibration_mode:
+
+            # ------------------------------------------------
+            # Save baseline trunk position
+            # ------------------------------------------------
+
+            if baseline_shoulder is None:
+
+                baseline_shoulder = shoulder_center
+
+                baseline_hip = hip_center
+
+                baseline_torso_length = torso_length
 
 
-        # --------------------------------------------------
-        # STORE WRIST POSITIONS
-        # --------------------------------------------------
+            # ------------------------------------------------
+            # Existing elbow calibration
+            # ------------------------------------------------
+
+            if smooth_left_angle < 90:
+
+                calibration_bent_frames += 1
+
+                calibration_straight_frames = 0
+
+                if calibration_bent_frames >= CALIBRATION_REQUIRED_FRAMES:
+
+                    if (
+                        calibration_stage == "STRAIGHT"
+                        or
+                        calibration_stage == "START"
+                    ):
+
+                        calibration_stage = "BENT"
+
+                        calibration_angles.append(
+                            smooth_left_angle
+                        )
+
+
+            elif smooth_left_angle > 140:
+
+                calibration_straight_frames += 1
+
+                calibration_bent_frames = 0
+
+                if calibration_straight_frames >= CALIBRATION_REQUIRED_FRAMES:
+
+                    if calibration_stage == "BENT":
+
+                        calibration_stage = "STRAIGHT"
+
+                        calibration_rep_count += 1
+
+                        calibration_angles.append(
+                            smooth_left_angle
+                        )
+
+                        if calibration_rep_count >= CALIBRATION_REPS:
+
+                            calibration_mode = False
+
+                            calibration_complete = True
+
+                            calibration_min_angle = min(
+                                calibration_angles
+                            )
+
+                            calibration_max_angle = max(
+                                calibration_angles
+                            )
+
+                            personal_rom = (
+                                calibration_max_angle
+                                -
+                                calibration_min_angle
+                            )
+
+                            print("\nCalibration completed!")
+
+                            print(
+                                f"Minimum angle: "
+                                f"{calibration_min_angle:.2f}"
+                            )
+
+                            print(
+                                f"Maximum angle: "
+                                f"{calibration_max_angle:.2f}"
+                            )
+
+                            print(
+                                f"Personal ROM: "
+                                f"{personal_rom:.2f} degrees"
+                            )
+
+
+            else:
+
+                calibration_bent_frames = 0
+
+                calibration_straight_frames = 0
+
+
+        # ====================================================
+        # NORMAL EXERCISE MODE
+        # ====================================================
+
+        elif calibration_complete:
+
+            # ------------------------------------------------
+            # PERSONALIZED THRESHOLDS
+            # ------------------------------------------------
+
+            bent_threshold = (
+                calibration_min_angle + 10
+            )
+
+            straight_threshold = (
+                calibration_max_angle - 10
+            )
+
+
+            # =================================================
+            # TRACK CURRENT REP ANGLE
+            # =================================================
+
+            if left_stage == "BENT":
+
+                if current_rep_min_angle is None:
+
+                    current_rep_min_angle = smooth_left_angle
+
+                else:
+
+                    current_rep_min_angle = min(
+                        current_rep_min_angle,
+                        smooth_left_angle
+                    )
+
+
+                if current_rep_max_angle is None:
+
+                    current_rep_max_angle = smooth_left_angle
+
+                else:
+
+                    current_rep_max_angle = max(
+                        current_rep_max_angle,
+                        smooth_left_angle
+                    )
+
+
+            # =================================================
+            # BENT POSITION
+            # =================================================
+
+            if smooth_left_angle < bent_threshold:
+
+                bent_frames += 1
+
+                straight_frames = 0
+
+                if bent_frames >= REQUIRED_FRAMES:
+
+                    if left_stage != "BENT":
+
+                        left_stage = "BENT"
+
+                        movement_start_time = time.time()
+
+                        current_rep_min_angle = smooth_left_angle
+
+                        current_rep_max_angle = smooth_left_angle
+
+                        current_rep_max_trunk_displacement = 0
+
+                        wrist_distances = []
+
+                    else:
+
+                        left_stage = "BENT"
+
+
+            # =================================================
+            # STRAIGHT POSITION
+            # =================================================
+
+            elif smooth_left_angle > straight_threshold:
+
+                straight_frames += 1
+
+                bent_frames = 0
+
+                if (
+                    straight_frames >= REQUIRED_FRAMES
+                    and
+                    left_stage == "BENT"
+                ):
+
+                    left_stage = "STRAIGHT"
+
+                    left_reps += 1
+
+
+                    # ----------------------------------------
+                    # MOVEMENT TIME
+                    # ----------------------------------------
+
+                    if movement_start_time is not None:
+
+                        movement_time = (
+                            time.time()
+                            -
+                            movement_start_time
+                        )
+
+                        movement_times.append(
+                            movement_time
+                        )
+
+                        movement_start_time = None
+
+
+                    # ----------------------------------------
+                    # ROM
+                    # ----------------------------------------
+
+                    if (
+                        current_rep_min_angle is not None
+                        and
+                        current_rep_max_angle is not None
+                    ):
+
+                        rep_rom = (
+                            current_rep_max_angle
+                            -
+                            current_rep_min_angle
+                        )
+
+                        rep_rom_values.append(
+                            rep_rom
+                        )
+
+
+                    # ----------------------------------------
+                    # TRUNK MOVEMENT
+                    # ----------------------------------------
+
+                    trunk_displacements.append(
+                        current_rep_max_trunk_displacement
+                    )
+
+
+                    # Reset current rep
+
+                    current_rep_min_angle = None
+
+                    current_rep_max_angle = None
+
+                    current_rep_max_trunk_displacement = 0
+
+
+            # =================================================
+            # MIDDLE POSITION
+            # =================================================
+
+            else:
+
+                bent_frames = 0
+
+                straight_frames = 0
+
+
+            # =================================================
+            # TRUNK DISPLACEMENT
+            # =================================================
+
+            if baseline_shoulder is not None:
+
+                trunk_displacement = calculate_distance(
+                    baseline_shoulder,
+                    shoulder_center
+                )
+
+                current_trunk_displacement = (
+                    trunk_displacement
+                )
+
+
+                # --------------------------------------------
+                # Normalize using torso length
+                # --------------------------------------------
+
+                if baseline_torso_length > 0:
+
+                    normalized_trunk = (
+                        trunk_displacement
+                        /
+                        baseline_torso_length
+                    )
+
+
+                # Track maximum during current rep
+
+                if left_stage == "BENT":
+
+                    current_rep_max_trunk_displacement = max(
+                        current_rep_max_trunk_displacement,
+                        trunk_displacement
+                    )
+
+
+            # =================================================
+            # WRIST SPEED
+            # =================================================
+
+            current_time = time.time()
+
+            if previous_wrist is not None:
+
+                distance = calculate_distance(
+                    previous_wrist,
+                    lw
+                )
+
+                time_difference = (
+                    current_time
+                    -
+                    previous_time
+                )
+
+                if time_difference > 0:
+
+                    speed = (
+                        distance
+                        /
+                        time_difference
+                    )
+
+                    wrist_distances.append(
+                        speed
+                    )
+
+
+            previous_wrist = lw
+
+            previous_time = current_time
+
+
+            # =================================================
+            # AVERAGE WRIST SPEED
+            # =================================================
+
+            if len(wrist_distances) > 0:
+
+                average_speed = (
+                    sum(wrist_distances)
+                    /
+                    len(wrist_distances)
+                )
+
+
+        # ====================================================
+        # WRIST PATH
+        # ====================================================
 
         left_wrist_path.append(lw)
+
         right_wrist_path.append(rw)
 
 
-        # --------------------------------------------------
-        # DRAW ARM CONNECTIONS
-        # --------------------------------------------------
+        # ====================================================
+        # DRAW ARM SKELETON
+        # ====================================================
 
         cv2.line(
             frame,
@@ -330,26 +734,73 @@ while True:
         )
 
 
-        # --------------------------------------------------
-        # DRAW LANDMARKS
-        # --------------------------------------------------
+        # ====================================================
+        # DRAW TRUNK
+        # ====================================================
 
-        for point in [ls, le, lw, rs, re, rw]:
+        cv2.line(
+            frame,
+            ls,
+            rs,
+            (255, 255, 0),
+            2
+        )
+
+        cv2.line(
+            frame,
+            lh,
+            rh,
+            (255, 255, 0),
+            2
+        )
+
+        cv2.line(
+            frame,
+            (
+                int(shoulder_center[0]),
+                int(shoulder_center[1])
+            ),
+            (
+                int(hip_center[0]),
+                int(hip_center[1])
+            ),
+            (255, 255, 0),
+            2
+        )
+
+
+        # ====================================================
+        # LANDMARK POINTS
+        # ====================================================
+
+        for point in [
+            ls,
+            le,
+            lw,
+            rs,
+            re,
+            rw,
+            lh,
+            rh
+        ]:
 
             cv2.circle(
                 frame,
                 point,
-                8,
+                7,
                 (0, 255, 0),
                 -1
             )
 
 
-        # --------------------------------------------------
-        # DRAW WRIST PATH
-        # --------------------------------------------------
+        # ====================================================
+        # WRIST TRAJECTORY
+        # ====================================================
 
-        for i in range(1, len(left_wrist_path)):
+        for i in range(
+            1,
+            len(left_wrist_path)
+        ):
 
             cv2.line(
                 frame,
@@ -360,9 +811,9 @@ while True:
             )
 
 
-        # --------------------------------------------------
-        # DISPLAY ELBOW ANGLES
-        # --------------------------------------------------
+        # ====================================================
+        # BASIC INFORMATION
+        # ====================================================
 
         cv2.putText(
             frame,
@@ -385,44 +836,197 @@ while True:
         )
 
 
-        # --------------------------------------------------
-        # DISPLAY REPETITIONS
-        # --------------------------------------------------
+        # ====================================================
+        # CALIBRATION DISPLAY
+        # ====================================================
 
-        cv2.putText(
-            frame,
-            f"Repetitions: {left_reps}",
-            (30, 125),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            1.0,
-            (0, 255, 255),
-            3
-        )
+        if calibration_mode:
+
+            cv2.putText(
+                frame,
+                "CALIBRATION MODE",
+                (30, 120),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.9,
+                (0, 255, 255),
+                3
+            )
+
+            cv2.putText(
+                frame,
+                f"Movements: {calibration_rep_count}/5",
+                (30, 160),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.8,
+                (0, 255, 255),
+                2
+            )
+
+            cv2.putText(
+                frame,
+                "Perform comfortable elbow bends",
+                (30, 200),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                (255, 255, 255),
+                2
+            )
 
 
-        # --------------------------------------------------
-        # DISPLAY CURRENT STAGE
-        # --------------------------------------------------
+        # ====================================================
+        # NORMAL MODE DISPLAY
+        # ====================================================
 
-        cv2.putText(
-            frame,
-            f"Stage: {left_stage}",
-            (30, 165),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.8,
-            (255, 255, 255),
-            2
-        )
+        elif calibration_complete:
+
+            cv2.putText(
+                frame,
+                f"Repetitions: {left_reps}",
+                (30, 120),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                1.0,
+                (0, 255, 255),
+                3
+            )
+
+            cv2.putText(
+                frame,
+                f"Stage: {left_stage}",
+                (30, 155),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.8,
+                (255, 255, 255),
+                2
+            )
+
+            cv2.putText(
+                frame,
+                f"Personal ROM: {int(personal_rom)} deg",
+                (30, 190),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                (255, 200, 0),
+                2
+            )
 
 
-        # --------------------------------------------------
-        # DISPLAY WRIST POSITION
-        # --------------------------------------------------
+            # Last ROM
+
+            if len(rep_rom_values) > 0:
+
+                cv2.putText(
+                    frame,
+                    f"Last Rep ROM: "
+                    f"{int(rep_rom_values[-1])} deg",
+                    (30, 225),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7,
+                    (0, 255, 0),
+                    2
+                )
+
+
+            # Movement time
+
+            if len(movement_times) > 0:
+
+                cv2.putText(
+                    frame,
+                    f"Last Movement: "
+                    f"{movement_times[-1]:.2f} sec",
+                    (30, 260),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7,
+                    (0, 255, 255),
+                    2
+                )
+
+
+            # Wrist speed
+
+            cv2.putText(
+                frame,
+                f"Wrist Speed: "
+                f"{average_speed:.1f} px/sec",
+                (30, 295),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                (255, 0, 0),
+                2
+            )
+
+
+            # Trunk displacement
+
+            cv2.putText(
+                frame,
+                f"Trunk Movement: "
+                f"{current_trunk_displacement:.1f} px",
+                (30, 330),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                (255, 100, 255),
+                2
+            )
+
+
+            # Normalized trunk movement
+
+            if baseline_torso_length is not None:
+
+                normalized_display = (
+                    current_trunk_displacement
+                    /
+                    baseline_torso_length
+                )
+
+                cv2.putText(
+                    frame,
+                    f"Trunk Ratio: "
+                    f"{normalized_display:.2f}",
+                    (30, 365),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7,
+                    (255, 100, 255),
+                    2
+                )
+
+
+        # ====================================================
+        # BEFORE CALIBRATION
+        # ====================================================
+
+        else:
+
+            cv2.putText(
+                frame,
+                "Press C to start calibration",
+                (30, 120),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.8,
+                (0, 255, 255),
+                2
+            )
+
+            cv2.putText(
+                frame,
+                "Press R to reset",
+                (30, 160),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                (255, 255, 255),
+                2
+            )
+
+
+        # ====================================================
+        # WRIST COORDINATES
+        # ====================================================
 
         cv2.putText(
             frame,
             f"Left Wrist: X={lw[0]} Y={lw[1]}",
-            (30, 205),
+            (30, 405),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.7,
             (255, 0, 0),
@@ -430,9 +1034,9 @@ while True:
         )
 
 
-    # --------------------------------------------------
-    # DISPLAY CAMERA
-    # --------------------------------------------------
+    # ========================================================
+    # DISPLAY
+    # ========================================================
 
     cv2.imshow(
         window_name,
@@ -440,14 +1044,150 @@ while True:
     )
 
 
-    # Press Q to exit
-    if cv2.waitKey(1) & 0xFF == ord("q"):
+    # ========================================================
+    # KEYBOARD
+    # ========================================================
+
+    key = cv2.waitKey(1) & 0xFF
+
+
+    # ========================================================
+    # START CALIBRATION
+    # ========================================================
+
+    if key == ord("c"):
+
+        calibration_mode = True
+
+        calibration_complete = False
+
+        calibration_angles = []
+
+        calibration_rep_count = 0
+
+        calibration_stage = "START"
+
+        calibration_bent_frames = 0
+
+        calibration_straight_frames = 0
+
+        left_reps = 0
+
+        left_stage = "START"
+
+
+        # Reset calibration baseline
+
+        baseline_shoulder = None
+        baseline_hip = None
+        baseline_torso_length = None
+
+
+        # Reset movement metrics
+
+        movement_start_time = None
+
+        movement_times = []
+
+        current_rep_min_angle = None
+
+        current_rep_max_angle = None
+
+        rep_rom_values = []
+
+        previous_wrist = None
+
+        previous_time = None
+
+        wrist_distances = []
+
+        average_speed = 0
+
+        trunk_displacements = []
+
+        current_rep_max_trunk_displacement = 0
+
+        current_trunk_displacement = 0
+
+
+        print("\nCalibration started.")
+
+        print("Perform 5 comfortable elbow bends.")
+
+
+    # ========================================================
+    # RESET
+    # ========================================================
+
+    elif key == ord("r"):
+
+        calibration_mode = False
+
+        calibration_complete = False
+
+        calibration_angles = []
+
+        calibration_rep_count = 0
+
+        calibration_min_angle = None
+
+        calibration_max_angle = None
+
+        personal_rom = None
+
+        left_reps = 0
+
+        left_stage = "START"
+
+        bent_frames = 0
+
+        straight_frames = 0
+
+
+        baseline_shoulder = None
+        baseline_hip = None
+        baseline_torso_length = None
+
+        movement_start_time = None
+
+        movement_times = []
+
+        current_rep_min_angle = None
+
+        current_rep_max_angle = None
+
+        rep_rom_values = []
+
+        previous_wrist = None
+
+        previous_time = None
+
+        wrist_distances = []
+
+        average_speed = 0
+
+        trunk_displacements = []
+
+        current_rep_max_trunk_displacement = 0
+
+        current_trunk_displacement = 0
+
+
+        print("\nSystem reset.")
+
+
+    # ========================================================
+    # QUIT
+    # ========================================================
+
+    elif key == ord("q"):
+
         break
 
 
-# --------------------------------------------------
-# RELEASE
-# --------------------------------------------------
+# ============================================================
+# CLEANUP
+# ============================================================
 
 cap.release()
 
