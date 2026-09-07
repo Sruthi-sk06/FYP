@@ -11,8 +11,7 @@ from mediapipe.tasks.python import vision
 # ============================================================
 # MODEL SETUP
 # ============================================================
-
-MODEL_PATH = r"C:\Users\SKS\OneDrive\Desktop\FYP\models\pose_landmarker_full.task"
+MODEL_PATH = r"C:\Users\smuri\OneDrive\Documents\FYP\models\pose_landmarker_full.task"
 
 base_options = python.BaseOptions(
     model_asset_path=MODEL_PATH
