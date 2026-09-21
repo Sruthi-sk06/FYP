@@ -1,46 +1,27 @@
-"""
-=====================================================================
-MOVENTRA - AR/VR Rehabilitation System for Stroke Patients
-Module 2: Gamified Rehabilitation
-Game 3: OBJECT SORTING
-
-Camera-based, non-immersive upper-limb rehabilitation game.
-
-The patient uses the LEFT hand/wrist to select the object that
-matches the target color.
-
-Tech stack:
-    Python
-    OpenCV
-    MediaPipe Pose Landmarker Tasks API
-    Pandas
-
-Controls:
-    1 / 2 / 3  -> Easy / Medium / Hard
-    SPACE      -> Start
-    R          -> Play again
-    Q          -> Quit
-=====================================================================
-"""
-
 import cv2
-import time
-import math
-import os
-import sys
-import random
-import numpy as np
-import tkinter as tk
-import pandas as pd
-
 import mediapipe as mp
+import pandas as pd
+import numpy as np
+import os
+import random
+import time
+
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 
 
-# ================================================================
+# ============================================================
+# MOVENTRA - OBJECT SORTING
+# ============================================================
+
+print("\n" + "=" * 60)
+print("             MOVENTRA - OBJECT SORTING")
+print("=" * 60)
+
+
+# ============================================================
 # PROJECT PATHS
-# ================================================================
+# ============================================================
 
 BASE_DIR = os.path.dirname(
     os.path.dirname(
@@ -61,9 +42,9 @@ CSV_PATH = os.path.join(
 )
 
 
-# ================================================================
-# CONFIGURATION
-# ================================================================
+# ============================================================
+# SETTINGS
+# ============================================================
 
 CAM_INDEX = 0
 
@@ -71,1970 +52,1827 @@ SESSION_SECONDS = 60
 
 WINDOW_NAME = "MOVENTRA - Object Sorting"
 
-FEEDBACK_SECONDS = 0.6
-
+# MediaPipe Pose Landmarker indices
 LEFT_WRIST_INDEX = 15
+RIGHT_WRIST_INDEX = 16
 
 
-# ================================================================
-# COLORS - BGR FORMAT
-# ================================================================
-
-COLOR_BG_TEXT = (255, 255, 255)
-
-COLOR_WRIST_NEUTRAL = (255, 255, 255)
-
-COLOR_CORRECT = (0, 255, 0)
-
-COLOR_WRONG = (0, 0, 255)
-
-COLOR_WARNING = (0, 0, 255)
-
-
-COLOR_PALETTE = {
-
-    "RED": (0, 0, 255),
-
-    "GREEN": (0, 200, 0),
-
-    "BLUE": (255, 120, 0),
-
-    "YELLOW": (0, 220, 220),
-
-    "PURPLE": (200, 0, 200),
-
-    "ORANGE": (0, 140, 255),
-
-    "CYAN": (255, 255, 0),
-
-    "PINK": (200, 150, 255),
-
-}
-
-
-# ================================================================
-# DIFFICULTY SETTINGS
-# ================================================================
+# ============================================================
+# DIFFICULTY
+# ============================================================
 
 DIFFICULTY_SETTINGS = {
 
     "EASY": {
         "count": 3,
-        "radius": 70,
-        "hit_tolerance": 35,
+        "radius": 65,
+        "tolerance": 35,
         "points": 50
     },
 
     "MEDIUM": {
         "count": 5,
         "radius": 50,
-        "hit_tolerance": 20,
+        "tolerance": 25,
         "points": 75
     },
 
     "HARD": {
         "count": 7,
-        "radius": 35,
-        "hit_tolerance": 8,
+        "radius": 40,
+        "tolerance": 18,
         "points": 100
     }
-
 }
 
 
-# ================================================================
-# GAME STATES
-# ================================================================
+# ============================================================
+# CSV COLUMNS
+# ============================================================
 
-STATE_MENU = "MENU"
+REQUIRED_COLUMNS = [
 
-STATE_START_SCREEN = "START_SCREEN"
+    "patient_id",
+    "patient_name",
+    "age",
+    "training_arm",
+    "session_number",
+    "session_date",
 
-STATE_PLAYING = "PLAYING"
+    "balloon_score",
+    "balloon_accuracy",
+    "balloon_attempts",
+    "balloon_successful_targets",
+    "balloon_time_sec",
 
-STATE_COMPLETE = "SESSION_COMPLETE"
+    "path_score",
+    "path_accuracy",
+    "path_checkpoints_completed",
+    "path_time_sec",
+    "path_distance_moved",
+
+    "sorting_score",
+    "sorting_accuracy",
+    "sorting_correct",
+    "sorting_wrong",
+    "sorting_targets_completed",
+    "sorting_time_sec",
+    "sorting_distance_moved",
+
+    "is_sample_data"
+]
 
 
-# ================================================================
+# ============================================================
+# COLORS
+# ============================================================
+
+WHITE = (255, 255, 255)
+BLACK = (0, 0, 0)
+
+GREEN = (0, 220, 0)
+RED = (0, 0, 255)
+BLUE = (255, 100, 0)
+YELLOW = (0, 255, 255)
+CYAN = (255, 255, 0)
+
+OBJECT_COLORS = [
+    (255, 80, 80),
+    (80, 180, 255),
+    (100, 255, 100),
+    (255, 100, 255),
+    (100, 255, 255),
+    (255, 200, 80),
+    (180, 100, 255),
+    (80, 220, 180)
+]
+
+
+# ============================================================
+# PATIENT DATA
+# ============================================================
+
+patient_id = ""
+patient_name = ""
+patient_age = 0
+training_arm = ""
+session_number = 1
+
+
+# ============================================================
+# GAME VARIABLES
+# ============================================================
+
+difficulty = "EASY"
+
+objects = []
+target_index = 0
+
+score = 0
+correct = 0
+wrong = 0
+targets_completed = 0
+
+total_distance = 0.0
+
+previous_wrist_original = None
+
+game_start_time = None
+
+last_touch_time = 0
+
+result_saved = False
+
+
+# ============================================================
+# PATIENT REGISTRATION
+# ============================================================
+
+def get_patient_details():
+
+    global patient_id
+    global patient_name
+    global patient_age
+    global training_arm
+    global session_number
+
+    print("\nPatient Registration")
+    print("-" * 40)
+
+    # --------------------------------------------------------
+    # Patient ID
+    # --------------------------------------------------------
+
+    while True:
+
+        patient_id = input(
+            "Enter Patient ID: "
+        ).strip()
+
+        if patient_id:
+            break
+
+        print("Patient ID cannot be empty.")
+
+    # --------------------------------------------------------
+    # Patient Name
+    # --------------------------------------------------------
+
+    while True:
+
+        patient_name = input(
+            "Enter Patient Name: "
+        ).strip()
+
+        if patient_name:
+            break
+
+        print("Patient Name cannot be empty.")
+
+    # --------------------------------------------------------
+    # Age
+    # --------------------------------------------------------
+
+    while True:
+
+        try:
+
+            patient_age = int(
+                input(
+                    "Enter Patient Age: "
+                ).strip()
+            )
+
+            if patient_age > 0:
+                break
+
+            print("Age must be greater than 0.")
+
+        except ValueError:
+
+            print(
+                "Please enter a valid age."
+            )
+
+    # --------------------------------------------------------
+    # Training Arm
+    # --------------------------------------------------------
+
+    while True:
+
+        arm_input = input(
+            "Enter Training Arm (LEFT/RIGHT): "
+        ).strip().upper()
+
+        if arm_input in ["LEFT", "RIGHT"]:
+
+            training_arm = arm_input
+
+            break
+
+        print(
+            "Please enter LEFT or RIGHT."
+        )
+
+    # --------------------------------------------------------
+    # Session Number
+    # --------------------------------------------------------
+
+    while True:
+
+        try:
+
+            session_number = int(
+                input(
+                    "Enter Session Number: "
+                ).strip()
+            )
+
+            if session_number > 0:
+                break
+
+            print(
+                "Session number must be greater than 0."
+            )
+
+        except ValueError:
+
+            print(
+                "Please enter a valid session number."
+            )
+
+    print("\n" + "-" * 50)
+
+    print(
+        "Patient      :",
+        patient_name
+    )
+
+    print(
+        "Patient ID   :",
+        patient_id
+    )
+
+    print(
+        "Age          :",
+        patient_age
+    )
+
+    print(
+        "Training Arm :",
+        training_arm
+    )
+
+    print(
+        "Session      :",
+        session_number
+    )
+
+    print("-" * 50)
+
+
+# ============================================================
 # GENERATE OBJECTS
-# ================================================================
+# ============================================================
 
-def generate_objects(
-    difficulty,
+def generate_objects(width, height):
+
+    global objects
+    global target_index
+
+    settings = DIFFICULTY_SETTINGS[
+        difficulty
+    ]
+
+    count = settings["count"]
+
+    objects = []
+
+    attempts = 0
+
+    while (
+        len(objects) < count
+        and attempts < 500
+    ):
+
+        attempts += 1
+
+        radius = settings["radius"]
+
+        x = random.randint(
+            radius + 50,
+            max(
+                radius + 51,
+                width - radius - 50
+            )
+        )
+
+        y = random.randint(
+            radius + 130,
+            max(
+                radius + 131,
+                height - radius - 80
+            )
+        )
+
+        valid = True
+
+        for obj in objects:
+
+            distance = np.sqrt(
+                (x - obj["x"]) ** 2
+                +
+                (y - obj["y"]) ** 2
+            )
+
+            if distance < (
+                radius * 2 + 30
+            ):
+
+                valid = False
+
+                break
+
+        if valid:
+
+            objects.append(
+                {
+                    "x": x,
+                    "y": y,
+                    "radius": radius,
+                    "color": random.choice(
+                        OBJECT_COLORS
+                    )
+                }
+            )
+
+    if objects:
+
+        target_index = random.randint(
+            0,
+            len(objects) - 1
+        )
+
+
+# ============================================================
+# CHANGE TARGET
+# ============================================================
+
+def generate_new_target():
+
+    global target_index
+
+    if len(objects) <= 1:
+        return
+
+    available_indices = [
+        i
+        for i in range(len(objects))
+        if i != target_index
+    ]
+
+    target_index = random.choice(
+        available_indices
+    )
+
+
+# ============================================================
+# DRAW TEXT
+# ============================================================
+
+def draw_text(
+    frame,
+    text,
+    position,
+    scale=0.7,
+    color=WHITE,
+    thickness=2
+):
+
+    cv2.putText(
+        frame,
+        str(text),
+        position,
+        cv2.FONT_HERSHEY_SIMPLEX,
+        scale,
+        color,
+        thickness,
+        cv2.LINE_AA
+    )
+
+
+# ============================================================
+# DRAW OBJECTS
+# ============================================================
+
+def draw_objects(frame):
+
+    for i, obj in enumerate(objects):
+
+        center = (
+            int(obj["x"]),
+            int(obj["y"])
+        )
+
+        radius = int(
+            obj["radius"]
+        )
+
+        # ----------------------------------------------------
+        # Target
+        # ----------------------------------------------------
+
+        if i == target_index:
+
+            cv2.circle(
+                frame,
+                center,
+                radius + 12,
+                YELLOW,
+                4
+            )
+
+            cv2.circle(
+                frame,
+                center,
+                radius,
+                obj["color"],
+                -1
+            )
+
+            draw_text(
+                frame,
+                "TARGET",
+                (
+                    center[0] - 40,
+                    center[1] + 5
+                ),
+                0.45,
+                BLACK,
+                2
+            )
+
+        # ----------------------------------------------------
+        # Normal object
+        # ----------------------------------------------------
+
+        else:
+
+            cv2.circle(
+                frame,
+                center,
+                radius,
+                obj["color"],
+                -1
+            )
+
+
+# ============================================================
+# GET SELECTED WRIST
+#
+# IMPORTANT:
+# MediaPipe processes the ORIGINAL camera frame.
+#
+# LEFT  = landmark 15
+# RIGHT = landmark 16
+# ============================================================
+
+def get_wrist_position_original(
+    result,
     width,
     height
 ):
 
-    cfg = DIFFICULTY_SETTINGS[difficulty]
+    if not result.pose_landmarks:
 
-    count = cfg["count"]
+        return None
 
-    radius = cfg["radius"]
+    landmarks = result.pose_landmarks[0]
 
-    hit_tolerance = cfg["hit_tolerance"]
+    # --------------------------------------------------------
+    # IMPORTANT SIDE SELECTION
+    # --------------------------------------------------------
 
+    if training_arm == "LEFT":
 
-    # Select unique colors
-
-    color_names = random.sample(
-        list(COLOR_PALETTE.keys()),
-        count
-    )
-
-
-    left_margin = radius + 60
-
-    right_margin = (
-        width -
-        radius -
-        60
-    )
-
-    usable_width = max(
-        1,
-        right_margin -
-        left_margin
-    )
-
-    mid_y = height // 2
-
-
-    objects = []
-
-
-    for i in range(count):
-
-        if count == 1:
-
-            x = width // 2
-
-        else:
-
-            x = int(
-                left_margin +
-                i *
-                (
-                    usable_width /
-                    (count - 1)
-                )
-            )
-
-
-        y_offset = (
-            60
-            if i % 2 == 0
-            else -60
-        )
-
-        y = mid_y + y_offset
-
-
-        objects.append({
-
-            "pos": (x, y),
-
-            "color_name":
-                color_names[i],
-
-            "color_bgr":
-                COLOR_PALETTE[
-                    color_names[i]
-                ]
-
-        })
-
-
-    target_index = random.randrange(
-        count
-    )
-
-
-    return (
-        objects,
-        target_index,
-        radius,
-        hit_tolerance
-    )
-
-
-# ================================================================
-# FIND TOUCHED OBJECT
-# ================================================================
-
-def find_touched_object(
-    wrist_pos,
-    objects,
-    radius,
-    hit_tolerance
-):
-
-    hit_radius = (
-        radius +
-        hit_tolerance
-    )
-
-
-    for idx, obj in enumerate(objects):
-
-        ox, oy = obj["pos"]
-
-
-        dist = math.hypot(
-
-            wrist_pos[0] - ox,
-
-            wrist_pos[1] - oy
-
-        )
-
-
-        if dist <= hit_radius:
-
-            return idx
-
-
-    return None
-
-
-# ================================================================
-# FULLSCREEN LETTERBOX
-# ================================================================
-
-def resize_with_letterbox(
-    frame,
-    target_w,
-    target_h
-):
-
-    h, w = frame.shape[:2]
-
-
-    scale = min(
-
-        target_w / w,
-
-        target_h / h
-
-    )
-
-
-    new_w = max(
-        1,
-        int(w * scale)
-    )
-
-    new_h = max(
-        1,
-        int(h * scale)
-    )
-
-
-    resized = cv2.resize(
-
-        frame,
-
-        (new_w, new_h),
-
-        interpolation=cv2.INTER_LINEAR
-
-    )
-
-
-    canvas = np.zeros(
-
-        (
-            target_h,
-            target_w,
-            3
-        ),
-
-        dtype=np.uint8
-
-    )
-
-
-    x_offset = (
-        target_w -
-        new_w
-    ) // 2
-
-    y_offset = (
-        target_h -
-        new_h
-    ) // 2
-
-
-    canvas[
-        y_offset:
-        y_offset + new_h,
-
-        x_offset:
-        x_offset + new_w
-    ] = resized
-
-
-    return canvas
-
-
-# ================================================================
-# DRAW CENTERED TEXT
-# ================================================================
-
-def draw_text_center(
-    frame,
-    text,
-    y,
-    scale=1.0,
-    color=COLOR_BG_TEXT,
-    thickness=2
-):
-
-    (
-        text_w,
-        _
-    ), _ = cv2.getTextSize(
-
-        text,
-
-        cv2.FONT_HERSHEY_SIMPLEX,
-
-        scale,
-
-        thickness
-
-    )
-
-
-    x = (
-        frame.shape[1] -
-        text_w
-    ) // 2
-
-
-    cv2.putText(
-
-        frame,
-
-        text,
-
-        (x, y),
-
-        cv2.FONT_HERSHEY_SIMPLEX,
-
-        scale,
-
-        color,
-
-        thickness,
-
-        cv2.LINE_AA
-
-    )
-
-
-# ================================================================
-# MENU SCREEN
-# ================================================================
-
-def draw_menu_screen(frame):
-
-    overlay = frame.copy()
-
-
-    cv2.rectangle(
-
-        overlay,
-
-        (0, 0),
-
-        (
-            frame.shape[1],
-            frame.shape[0]
-        ),
-
-        (30, 30, 30),
-
-        -1
-
-    )
-
-
-    cv2.addWeighted(
-
-        overlay,
-
-        0.85,
-
-        frame,
-
-        0.15,
-
-        0,
-
-        frame
-
-    )
-
-
-    draw_text_center(
-
-        frame,
-
-        "OBJECT SORTING",
-
-        100,
-
-        1.4,
-
-        (0, 255, 255),
-
-        3
-
-    )
-
-
-    draw_text_center(
-
-        frame,
-
-        "MOVENTRA - Gamified Rehabilitation",
-
-        140,
-
-        0.7,
-
-        (200, 200, 200),
-
-        1
-
-    )
-
-
-    draw_text_center(
-
-        frame,
-
-        "Select Difficulty",
-
-        220,
-
-        1.0,
-
-        COLOR_BG_TEXT,
-
-        2
-
-    )
-
-
-    draw_text_center(
-
-        frame,
-
-        "1 - Easy",
-
-        280,
-
-        0.9,
-
-        (0, 255, 0),
-
-        2
-
-    )
-
-
-    draw_text_center(
-
-        frame,
-
-        "2 - Medium",
-
-        320,
-
-        0.9,
-
-        (0, 165, 255),
-
-        2
-
-    )
-
-
-    draw_text_center(
-
-        frame,
-
-        "3 - Hard",
-
-        360,
-
-        0.9,
-
-        (0, 0, 255),
-
-        2
-
-    )
-
-
-    draw_text_center(
-
-        frame,
-
-        "Press Q to Quit",
-
-        frame.shape[0] - 40,
-
-        0.7,
-
-        (180, 180, 180),
-
-        1
-
-    )
-
-
-# ================================================================
-# START SCREEN
-# ================================================================
-
-def draw_start_screen(
-    frame,
-    difficulty,
-    patient_id,
-    patient_name,
-    session_number
-):
-
-    draw_text_center(
-
-        frame,
-
-        "OBJECT SORTING",
-
-        60,
-
-        1.1,
-
-        (0, 255, 255),
-
-        2
-
-    )
-
-
-    draw_text_center(
-
-        frame,
-
-        f"Patient: {patient_id} - {patient_name}",
-
-        100,
-
-        0.7,
-
-        COLOR_BG_TEXT,
-
-        2
-
-    )
-
-
-    draw_text_center(
-
-        frame,
-
-        f"Session: {session_number}",
-
-        135,
-
-        0.7,
-
-        COLOR_BG_TEXT,
-
-        2
-
-    )
-
-
-    draw_text_center(
-
-        frame,
-
-        f"Difficulty: {difficulty}",
-
-        175,
-
-        0.8,
-
-        COLOR_BG_TEXT,
-
-        2
-
-    )
-
-
-    draw_text_center(
-
-        frame,
-
-        "Reach the object that matches the target color",
-
-        230,
-
-        0.7,
-
-        COLOR_BG_TEXT,
-
-        1
-
-    )
-
-
-    draw_text_center(
-
-        frame,
-
-        "Use your LEFT hand",
-
-        frame.shape[0] - 100,
-
-        0.8,
-
-        (0, 255, 0),
-
-        2
-
-    )
-
-
-    draw_text_center(
-
-        frame,
-
-        "Press SPACE to Start",
-
-        frame.shape[0] - 60,
-
-        0.9,
-
-        (0, 255, 0),
-
-        2
-
-    )
-
-
-    draw_text_center(
-
-        frame,
-
-        "Press Q to Quit",
-
-        frame.shape[0] - 25,
-
-        0.6,
-
-        (180, 180, 180),
-
-        1
-
-    )
-
-
-# ================================================================
-# DRAW OBJECTS
-# ================================================================
-
-def draw_objects(
-
-    frame,
-    objects,
-    target_index,
-    radius,
-    feedback_active,
-    feedback_type,
-    touched_index
-
-):
-
-    for idx, obj in enumerate(objects):
-
-        pos = obj["pos"]
-
-        color = obj["color_bgr"]
-
-
-        cv2.circle(
-
-            frame,
-
-            pos,
-
-            radius,
-
-            color,
-
-            -1
-
-        )
-
-
-        cv2.circle(
-
-            frame,
-
-            pos,
-
-            radius,
-
-            (255, 255, 255),
-
-            2
-
-        )
-
-
-        if (
-
-            feedback_active
-            and
-            idx == touched_index
-
-        ):
-
-            if feedback_type == "correct":
-
-                ring_color = COLOR_CORRECT
-
-            else:
-
-                ring_color = COLOR_WRONG
-
-
-            cv2.circle(
-
-                frame,
-
-                pos,
-
-                radius + 12,
-
-                ring_color,
-
-                4
-
-            )
-
-
-# ================================================================
-# TARGET INSTRUCTION
-# ================================================================
-
-def draw_target_instruction(
-    frame,
-    target_color_name
-):
-
-    h, w = frame.shape[:2]
-
-
-    text = (
-        f"Find the "
-        f"{target_color_name} Object"
-    )
-
-
-    color = COLOR_PALETTE[
-        target_color_name
-    ]
-
-
-    (
-        text_w,
-        text_h
-    ), _ = cv2.getTextSize(
-
-        text,
-
-        cv2.FONT_HERSHEY_SIMPLEX,
-
-        0.9,
-
-        2
-
-    )
-
-
-    box_y = h - 80
-
-
-    cv2.rectangle(
-
-        frame,
-
-        (
-            w // 2 -
-            text_w // 2 -
-            20,
-
-            box_y -
-            text_h -
-            15
-        ),
-
-        (
-            w // 2 +
-            text_w // 2 +
-            20,
-
-            box_y + 15
-        ),
-
-        (20, 20, 20),
-
-        -1
-
-    )
-
-
-    cv2.putText(
-
-        frame,
-
-        text,
-
-        (
-            w // 2 -
-            text_w // 2,
-
-            box_y
-        ),
-
-        cv2.FONT_HERSHEY_SIMPLEX,
-
-        0.9,
-
-        color,
-
-        2,
-
-        cv2.LINE_AA
-
-    )
-
-
-# ================================================================
-# FEEDBACK
-# ================================================================
-
-def draw_feedback_banner(
-    frame,
-    feedback_type
-):
-
-    if feedback_type == "correct":
-
-        draw_text_center(
-
-            frame,
-
-            "CORRECT!",
-
-            100,
-
-            1.3,
-
-            COLOR_CORRECT,
-
-            3
-
-        )
+        wrist_index = LEFT_WRIST_INDEX
 
     else:
 
-        draw_text_center(
+        wrist_index = RIGHT_WRIST_INDEX
 
-            frame,
+    # --------------------------------------------------------
+    # Get selected landmark
+    # --------------------------------------------------------
 
-            "WRONG OBJECT - TRY AGAIN",
+    if wrist_index >= len(landmarks):
 
-            100,
+        return None
 
-            1.0,
+    wrist = landmarks[
+        wrist_index
+    ]
 
-            COLOR_WRONG,
+    # --------------------------------------------------------
+    # Convert normalized coordinates
+    # to ORIGINAL camera coordinates
+    # --------------------------------------------------------
 
-            3
+    x = int(
+        wrist.x * width
+    )
 
+    y = int(
+        wrist.y * height
+    )
+
+    # --------------------------------------------------------
+    # Validate
+    # --------------------------------------------------------
+
+    if (
+        x < 0
+        or x >= width
+        or y < 0
+        or y >= height
+    ):
+
+        return None
+
+    return x, y
+
+
+# ============================================================
+# CONVERT ORIGINAL WRIST TO MIRRORED DISPLAY
+# ============================================================
+
+def mirror_point(
+    point,
+    width
+):
+
+    if point is None:
+
+        return None
+
+    x, y = point
+
+    mirrored_x = (
+        width - 1 - x
+    )
+
+    return (
+        mirrored_x,
+        y
+    )
+
+
+# ============================================================
+# UPDATE MOVEMENT DISTANCE
+#
+# Distance is calculated using ORIGINAL coordinates.
+# ============================================================
+
+def update_distance(
+    wrist_original
+):
+
+    global previous_wrist_original
+    global total_distance
+
+    if wrist_original is None:
+
+        return
+
+    if previous_wrist_original is not None:
+
+        dx = (
+            wrist_original[0]
+            -
+            previous_wrist_original[0]
         )
 
+        dy = (
+            wrist_original[1]
+            -
+            previous_wrist_original[1]
+        )
 
-# ================================================================
-# HUD
-# ================================================================
+        distance = np.sqrt(
+            dx * dx +
+            dy * dy
+        )
 
-def draw_hud(
+        # Ignore sudden tracking jumps
+        if distance < 150:
 
-    frame,
-    score,
-    accuracy,
-    time_left,
-    targets_completed
+            total_distance += distance
 
+    previous_wrist_original = (
+        wrist_original
+    )
+
+
+# ============================================================
+# CHECK TARGET TOUCH
+#
+# Target positions are displayed in mirrored coordinates.
+# Therefore the selected wrist must also be converted
+# to mirrored coordinates before comparison.
+# ============================================================
+
+def check_target_touch(
+    wrist_display
 ):
 
-    h, w = frame.shape[:2]
+    global score
+    global correct
+    global wrong
+    global targets_completed
+    global last_touch_time
 
+    if wrist_display is None:
 
-    overlay = frame.copy()
+        return
 
+    if not objects:
 
-    cv2.rectangle(
+        return
 
-        overlay,
+    current_time = time.time()
 
-        (0, 0),
+    # Prevent repeated detection
+    if (
+        current_time
+        -
+        last_touch_time
+        <
+        0.35
+    ):
 
-        (w, 70),
+        return
 
-        (20, 20, 20),
+    target = objects[
+        target_index
+    ]
 
-        -1
+    settings = DIFFICULTY_SETTINGS[
+        difficulty
+    ]
 
-    )
+    # --------------------------------------------------------
+    # Distance to target
+    # --------------------------------------------------------
 
-
-    cv2.addWeighted(
-
-        overlay,
-
-        0.6,
-
-        frame,
-
-        0.4,
-
-        0,
-
-        frame
-
-    )
-
-
-    cv2.putText(
-
-        frame,
-
-        f"Score: {score}",
-
-        (20, 30),
-
-        cv2.FONT_HERSHEY_SIMPLEX,
-
-        0.7,
-
-        (0, 255, 0),
-
-        2
-
-    )
-
-
-    cv2.putText(
-
-        frame,
-
-        f"Accuracy: {accuracy:.1f}%",
-
-        (20, 58),
-
-        cv2.FONT_HERSHEY_SIMPLEX,
-
-        0.7,
-
-        (0, 200, 255),
-
-        2
-
-    )
-
-
-    targets_text = (
-
-        f"Targets Completed: "
-        f"{targets_completed}"
-    )
-
-
-    (
-        tw,
-        _
-    ), _ = cv2.getTextSize(
-
-        targets_text,
-
-        cv2.FONT_HERSHEY_SIMPLEX,
-
-        0.7,
-
-        2
-
-    )
-
-
-    cv2.putText(
-
-        frame,
-
-        targets_text,
-
+    target_distance = np.sqrt(
         (
-            w // 2 -
-            tw // 2,
-
-            40
-        ),
-
-        cv2.FONT_HERSHEY_SIMPLEX,
-
-        0.7,
-
-        COLOR_BG_TEXT,
-
-        2
-
-    )
-
-
-    timer_text = (
-        f"Time: "
-        f"{int(time_left)}s"
-    )
-
-
-    (
-        tw3,
-        _
-    ), _ = cv2.getTextSize(
-
-        timer_text,
-
-        cv2.FONT_HERSHEY_SIMPLEX,
-
-        0.7,
-
-        2
-
-    )
-
-
-    cv2.putText(
-
-        frame,
-
-        timer_text,
-
+            wrist_display[0]
+            -
+            target["x"]
+        ) ** 2
+        +
         (
-            w -
-            tw3 -
-            20,
-
-            30
-        ),
-
-        cv2.FONT_HERSHEY_SIMPLEX,
-
-        0.7,
-
-        (255, 255, 0),
-
-        2
-
+            wrist_display[1]
+            -
+            target["y"]
+        ) ** 2
     )
 
+    # --------------------------------------------------------
+    # CORRECT TARGET
+    # --------------------------------------------------------
 
-# ================================================================
-# WRIST WARNING
-# ================================================================
+    if target_distance <= (
+        target["radius"]
+        +
+        settings["tolerance"]
+    ):
 
-def draw_wrist_not_detected_warning(
-    frame
-):
+        score += settings["points"]
 
-    draw_text_center(
+        correct += 1
 
-        frame,
+        targets_completed += 1
 
-        "LEFT WRIST NOT DETECTED",
+        last_touch_time = (
+            current_time
+        )
 
-        110,
+        generate_new_target()
 
-        0.8,
+        return
 
-        COLOR_WARNING,
+    # --------------------------------------------------------
+    # WRONG TARGET
+    # --------------------------------------------------------
 
-        2
+    for i, obj in enumerate(objects):
 
+        if i == target_index:
+
+            continue
+
+        distance = np.sqrt(
+            (
+                wrist_display[0]
+                -
+                obj["x"]
+            ) ** 2
+            +
+            (
+                wrist_display[1]
+                -
+                obj["y"]
+            ) ** 2
+        )
+
+        if distance <= obj["radius"]:
+
+            wrong += 1
+
+            last_touch_time = (
+                current_time
+            )
+
+            break
+
+
+# ============================================================
+# SAVE RESULT
+# ============================================================
+
+def save_result():
+
+    global result_saved
+
+    if result_saved:
+
+        return
+
+    print(
+        "\nSaving Object Sorting result..."
     )
-
-
-    draw_text_center(
-
-        frame,
-
-        "Please make sure your left arm is visible",
-
-        140,
-
-        0.6,
-
-        COLOR_WARNING,
-
-        1
-
-    )
-
-
-# ================================================================
-# SAVE RESULTS TO CSV
-# ================================================================
-
-def save_object_sorting_result(
-    patient_id,
-    patient_name,
-    session_number,
-    difficulty,
-    score,
-    accuracy,
-    correct_count,
-    wrong_count,
-    targets_completed,
-    time_taken,
-    distance_travelled
-):
 
     try:
 
-        # --------------------------------------------------------
-        # Read existing CSV
-        # --------------------------------------------------------
+        # ----------------------------------------------------
+        # Ensure module 3 directory exists
+        # ----------------------------------------------------
 
-        if os.path.exists(CSV_PATH):
-
-            df = pd.read_csv(
+        os.makedirs(
+            os.path.dirname(
                 CSV_PATH
+            ),
+            exist_ok=True
+        )
+
+        # ----------------------------------------------------
+        # Accuracy
+        # ----------------------------------------------------
+
+        attempts = (
+            correct
+            +
+            wrong
+        )
+
+        if attempts > 0:
+
+            accuracy = (
+                correct
+                /
+                attempts
+            ) * 100
+
+        else:
+
+            accuracy = 0.0
+
+        # ----------------------------------------------------
+        # Time
+        # ----------------------------------------------------
+
+        if game_start_time is not None:
+
+            elapsed = (
+                time.time()
+                -
+                game_start_time
             )
+
+        else:
+
+            elapsed = 0
+
+        elapsed = min(
+            elapsed,
+            SESSION_SECONDS
+        )
+
+        # ----------------------------------------------------
+        # Read existing CSV
+        # ----------------------------------------------------
+
+        if os.path.exists(
+            CSV_PATH
+        ):
+
+            try:
+
+                df = pd.read_csv(
+                    CSV_PATH
+                )
+
+            except Exception:
+
+                df = pd.DataFrame()
 
         else:
 
             df = pd.DataFrame()
 
-
-        # --------------------------------------------------------
-        # Required CSV columns
-        # --------------------------------------------------------
-
-        required_columns = [
-
-            "patient_id",
-
-            "patient_name",
-
-            "session_number",
-
-            # Balloon Reach
-            "balloon_score",
-            "balloon_attempts",
-            "balloon_successful_targets",
-            "balloon_accuracy",
-            "balloon_time_sec",
-
-            # Follow the Path
-            "path_score",
-            "path_accuracy",
-            "path_checkpoints_completed",
-            "path_time_sec",
-            "path_distance_moved",
-
-            # Object Sorting
-            "sorting_score",
-            "sorting_accuracy",
-            "sorting_correct",
-            "sorting_wrong",
-            "sorting_targets_completed",
-            "sorting_time_sec",
-            "sorting_distance_moved",
-
-            "is_sample_data"
-
-        ]
-
-
-        # --------------------------------------------------------
+        # ----------------------------------------------------
         # Add missing columns
-        # --------------------------------------------------------
+        # ----------------------------------------------------
 
-        for column in required_columns:
+        for column in REQUIRED_COLUMNS:
 
             if column not in df.columns:
 
-                if column in [
+                df[column] = np.nan
 
-                    "patient_id",
+        # ----------------------------------------------------
+        # New result
+        # ----------------------------------------------------
 
-                    "patient_name",
+        new_data = {
 
-                    "is_sample_data"
+            "patient_id":
+                patient_id,
 
-                ]:
+            "patient_name":
+                patient_name,
 
-                    df[column] = ""
+            "age":
+                patient_age,
 
-                else:
+            "training_arm":
+                training_arm,
 
-                    df[column] = 0
+            "session_number":
+                session_number,
 
+            "session_date":
+                time.strftime(
+                    "%Y-%m-%d"
+                ),
 
-        # --------------------------------------------------------
-        # Fix numeric column types
+            "sorting_score":
+                score,
+
+            "sorting_accuracy":
+                accuracy,
+
+            "sorting_correct":
+                correct,
+
+            "sorting_wrong":
+                wrong,
+
+            "sorting_targets_completed":
+                targets_completed,
+
+            "sorting_time_sec":
+                elapsed,
+
+            "sorting_distance_moved":
+                total_distance,
+
+            "is_sample_data":
+                "NO"
+        }
+
+        # ----------------------------------------------------
+        # Find existing patient/session
         #
-        # This prevents the pandas dtype error that happened
-        # previously in Follow the Path.
-        # --------------------------------------------------------
+        # Case-insensitive patient ID matching
+        # ----------------------------------------------------
 
-        integer_columns = [
+        if not df.empty:
 
-            "session_number",
+            patient_match = (
+                df["patient_id"]
+                .astype(str)
+                .str.strip()
+                .str.lower()
+                ==
+                str(patient_id)
+                .strip()
+                .lower()
+            )
 
-            "balloon_score",
-
-            "balloon_attempts",
-
-            "balloon_successful_targets",
-
-            "path_score",
-
-            "path_checkpoints_completed",
-
-            "sorting_score",
-
-            "sorting_correct",
-
-            "sorting_wrong",
-
-            "sorting_targets_completed"
-
-        ]
-
-
-        float_columns = [
-
-            "balloon_accuracy",
-
-            "balloon_time_sec",
-
-            "path_accuracy",
-
-            "path_time_sec",
-
-            "path_distance_moved",
-
-            "sorting_accuracy",
-
-            "sorting_time_sec",
-
-            "sorting_distance_moved"
-
-        ]
-
-
-        for column in integer_columns:
-
-            df[column] = (
-
+            session_match = (
                 pd.to_numeric(
-
-                    df[column],
-
+                    df["session_number"],
                     errors="coerce"
-
                 )
-
-                .fillna(0)
-
-                .astype(int)
-
+                ==
+                session_number
             )
 
-
-        for column in float_columns:
-
-            df[column] = (
-
-                pd.to_numeric(
-
-                    df[column],
-
-                    errors="coerce"
-
-                )
-
-                .fillna(0.0)
-
-                .astype(float)
-
+            matching_rows = (
+                patient_match
+                &
+                session_match
             )
-
-
-        # --------------------------------------------------------
-        # Text columns
-        # --------------------------------------------------------
-
-        df["patient_id"] = (
-
-            df["patient_id"]
-
-            .fillna("")
-
-            .astype(str)
-
-        )
-
-
-        df["patient_name"] = (
-
-            df["patient_name"]
-
-            .fillna("")
-
-            .astype(str)
-
-        )
-
-
-        df["is_sample_data"] = (
-
-            df["is_sample_data"]
-
-            .fillna("NO")
-
-            .astype(str)
-
-        )
-
-
-        # --------------------------------------------------------
-        # Find patient + session
-        # --------------------------------------------------------
-
-        mask = (
-
-            (df["patient_id"] == patient_id)
-
-            &
-
-            (
-                df["session_number"]
-                == session_number
-            )
-
-        )
-
-
-        if mask.any():
-
-            row_index = df.index[
-                mask
-            ][0]
 
         else:
 
-            # Create new row
+            matching_rows = pd.Series(
+                dtype=bool
+            )
 
-            new_row = {
+        # ----------------------------------------------------
+        # UPDATE EXISTING SESSION
+        # ----------------------------------------------------
 
-                column: 0
+        if (
+            not matching_rows.empty
+            and
+            matching_rows.any()
+        ):
 
-                for column
-                in required_columns
+            row_index = df.index[
+                matching_rows
+            ][0]
 
-            }
+            for key, value in (
+                new_data.items()
+            ):
 
+                df.loc[
+                    row_index,
+                    key
+                ] = value
 
-            new_row[
-                "patient_id"
-            ] = patient_id
+            print(
+                "Existing patient/session updated."
+            )
 
+        # ----------------------------------------------------
+        # ADD NEW SESSION
+        # ----------------------------------------------------
 
-            new_row[
-                "patient_name"
-            ] = patient_name
+        else:
 
+            new_row = {}
 
-            new_row[
-                "session_number"
-            ] = session_number
+            for column in REQUIRED_COLUMNS:
 
-
-            new_row[
-                "is_sample_data"
-            ] = "NO"
-
+                new_row[column] = (
+                    new_data.get(
+                        column,
+                        0
+                    )
+                )
 
             df = pd.concat(
-
                 [
-
                     df,
-
                     pd.DataFrame(
                         [new_row]
                     )
-
                 ],
-
                 ignore_index=True
-
             )
 
+            print(
+                "New patient/session added."
+            )
 
-            row_index = df.index[-1]
+        # ----------------------------------------------------
+        # Make sure all columns exist
+        # ----------------------------------------------------
 
+        for column in REQUIRED_COLUMNS:
 
-        # --------------------------------------------------------
-        # Update patient details
-        # --------------------------------------------------------
+            if column not in df.columns:
 
-        df.at[
+                df[column] = 0
 
-            row_index,
+        # ----------------------------------------------------
+        # Arrange columns
+        # ----------------------------------------------------
 
-            "patient_name"
+        df = df[
+            REQUIRED_COLUMNS
+        ]
 
-        ] = patient_name
-
-
-        df.at[
-
-            row_index,
-
-            "is_sample_data"
-
-        ] = "NO"
-
-
-        # --------------------------------------------------------
-        # Save Object Sorting values
-        # --------------------------------------------------------
-
-        df.at[
-
-            row_index,
-
-            "sorting_score"
-
-        ] = int(score)
-
-
-        df.at[
-
-            row_index,
-
-            "sorting_accuracy"
-
-        ] = float(accuracy)
-
-
-        df.at[
-
-            row_index,
-
-            "sorting_correct"
-
-        ] = int(correct_count)
-
-
-        df.at[
-
-            row_index,
-
-            "sorting_wrong"
-
-        ] = int(wrong_count)
-
-
-        df.at[
-
-            row_index,
-
-            "sorting_targets_completed"
-
-        ] = int(targets_completed)
-
-
-        df.at[
-
-            row_index,
-
-            "sorting_time_sec"
-
-        ] = float(time_taken)
-
-
-        df.at[
-
-            row_index,
-
-            "sorting_distance_moved"
-
-        ] = float(distance_travelled)
-
-
-        # --------------------------------------------------------
-        # Save CSV
-        # --------------------------------------------------------
-
-        os.makedirs(
-
-            os.path.dirname(
-                CSV_PATH
-            ),
-
-            exist_ok=True
-
-        )
-
+        # ----------------------------------------------------
+        # Save
+        # ----------------------------------------------------
 
         df.to_csv(
-
             CSV_PATH,
-
             index=False
-
         )
 
+        result_saved = True
 
-        # --------------------------------------------------------
-        # Terminal output
-        # --------------------------------------------------------
+        # ----------------------------------------------------
+        # Terminal confirmation
+        # ----------------------------------------------------
 
-        print("\n========================================")
-
+        print("\n" + "=" * 60)
         print(
-            "OBJECT SORTING RESULTS SAVED"
+            "          RESULT SAVED SUCCESSFULLY"
         )
-
-        print("========================================")
+        print("=" * 60)
 
         print(
-            f"Patient : "
-            f"{patient_id} - "
-            f"{patient_name}"
+            "Patient ID       :",
+            patient_id
         )
 
         print(
-            f"Session : "
-            f"{session_number}"
+            "Patient Name     :",
+            patient_name
         )
 
         print(
-            f"Difficulty: "
-            f"{difficulty}"
+            "Age              :",
+            patient_age
         )
 
         print(
-            f"Score   : "
-            f"{score}"
+            "Training Arm     :",
+            training_arm
         )
 
         print(
-            f"Correct : "
-            f"{correct_count}"
+            "Session Number   :",
+            session_number
         )
 
         print(
-            f"Wrong   : "
-            f"{wrong_count}"
+            "Sorting Score    :",
+            score
         )
 
         print(
-            f"Targets : "
-            f"{targets_completed}"
+            "Sorting Accuracy :",
+            f"{accuracy:.2f}%"
         )
 
         print(
-            f"Accuracy: "
-            f"{accuracy:.1f}%"
+            "Correct          :",
+            correct
         )
 
         print(
-            f"Time    : "
-            f"{time_taken:.1f} sec"
+            "Wrong            :",
+            wrong
         )
 
         print(
-            f"Distance: "
-            f"{distance_travelled:.0f} px"
+            "Targets          :",
+            targets_completed
         )
 
         print(
-            f"CSV     : "
-            f"{CSV_PATH}"
+            "CSV File         :",
+            CSV_PATH
         )
 
-        print(
-            "========================================"
-        )
-
-
-        return True
-
+        print("=" * 60)
 
     except Exception as e:
 
-        print("\n========================================")
-
         print(
-            "ERROR: Could not save "
-            "Object Sorting results."
+            "\nERROR WHILE SAVING CSV:"
         )
 
-        print("Reason:", e)
-
-        print(
-            "========================================"
-        )
-
-        return False
+        print(e)
 
 
-# ================================================================
-# SESSION COMPLETE SCREEN
-# ================================================================
+# ============================================================
+# MENU
+# ============================================================
 
-def draw_session_complete(
-    frame,
-    results,
-    save_success
-):
+def show_menu(frame):
+
+    height, width = frame.shape[:2]
 
     overlay = frame.copy()
 
+    cv2.rectangle(
+        overlay,
+        (0, 0),
+        (width, height),
+        BLACK,
+        -1
+    )
+
+    frame = cv2.addWeighted(
+        overlay,
+        0.65,
+        frame,
+        0.35,
+        0
+    )
+
+    draw_text(
+        frame,
+        "MOVENTRA - OBJECT SORTING",
+        (
+            width // 2 - 260,
+            100
+        ),
+        1.0,
+        CYAN,
+        3
+    )
+
+    draw_text(
+        frame,
+        "Select Difficulty",
+        (
+            width // 2 - 120,
+            175
+        ),
+        0.75,
+        WHITE,
+        2
+    )
+
+    draw_text(
+        frame,
+        "1 - EASY",
+        (
+            width // 2 - 90,
+            235
+        ),
+        0.7,
+        GREEN,
+        2
+    )
+
+    draw_text(
+        frame,
+        "2 - MEDIUM",
+        (
+            width // 2 - 90,
+            285
+        ),
+        0.7,
+        YELLOW,
+        2
+    )
+
+    draw_text(
+        frame,
+        "3 - HARD",
+        (
+            width // 2 - 90,
+            335
+        ),
+        0.7,
+        RED,
+        2
+    )
+
+    draw_text(
+        frame,
+        "Current: " + difficulty,
+        (
+            width // 2 - 90,
+            395
+        ),
+        0.7,
+        WHITE,
+        2
+    )
+
+    draw_text(
+        frame,
+        "Press SPACE to start",
+        (
+            width // 2 - 145,
+            475
+        ),
+        0.7,
+        WHITE,
+        2
+    )
+
+    draw_text(
+        frame,
+        "Press Q to quit",
+        (
+            width // 2 - 95,
+            525
+        ),
+        0.6,
+        WHITE,
+        2
+    )
+
+    return frame
+
+
+# ============================================================
+# START SCREEN
+# ============================================================
+
+def show_start_screen(frame):
+
+    height, width = frame.shape[:2]
+
+    overlay = frame.copy()
 
     cv2.rectangle(
-
         overlay,
-
         (0, 0),
-
-        (
-            frame.shape[1],
-            frame.shape[0]
-        ),
-
-        (20, 20, 20),
-
+        (width, height),
+        BLACK,
         -1
-
     )
 
-
-    cv2.addWeighted(
-
+    frame = cv2.addWeighted(
         overlay,
-
-        0.9,
-
+        0.65,
         frame,
-
-        0.1,
-
-        0,
-
-        frame
-
+        0.35,
+        0
     )
 
-
-    draw_text_center(
-
+    draw_text(
         frame,
-
-        "SESSION COMPLETE",
-
-        80,
-
-        1.3,
-
-        (0, 255, 255),
-
+        "GET READY!",
+        (
+            width // 2 - 120,
+            140
+        ),
+        1.0,
+        CYAN,
         3
-
     )
 
+    draw_text(
+        frame,
+        "Training Arm: "
+        + training_arm,
+        (
+            width // 2 - 150,
+            215
+        ),
+        0.75,
+        WHITE,
+        2
+    )
 
-    lines = [
+    draw_text(
+        frame,
+        "Difficulty: "
+        + difficulty,
+        (
+            width // 2 - 120,
+            265
+        ),
+        0.7,
+        YELLOW,
+        2
+    )
 
-        f"Difficulty: {results['difficulty']}",
+    draw_text(
+        frame,
+        "Touch the highlighted TARGET",
+        (
+            width // 2 - 180,
+            340
+        ),
+        0.7,
+        WHITE,
+        2
+    )
 
-        f"Score: {results['score']}",
+    draw_text(
+        frame,
+        "Use your "
+        + training_arm
+        + " hand",
+        (
+            width // 2 - 150,
+            390
+        ),
+        0.7,
+        GREEN,
+        2
+    )
 
-        f"Accuracy: {results['accuracy']:.1f}%",
+    draw_text(
+        frame,
+        "Press SPACE to begin",
+        (
+            width // 2 - 145,
+            485
+        ),
+        0.7,
+        WHITE,
+        2
+    )
 
-        f"Correct Selections: {results['correct']}",
+    draw_text(
+        frame,
+        "Press Q to quit",
+        (
+            width // 2 - 95,
+            535
+        ),
+        0.6,
+        WHITE,
+        2
+    )
 
-        f"Wrong Selections: {results['wrong']}",
-
-        f"Targets Completed: {results['targets_completed']}",
-
-        f"Time Taken: {results['time_taken']:.1f} sec",
-
-        f"Distance Travelled: {results['distance']:.0f} px"
-
-    ]
+    return frame
 
 
-    y = 140
+# ============================================================
+# GAME SCREEN
+# ============================================================
 
+def show_game(
+    frame,
+    wrist_display
+):
 
-    for line in lines:
+    height, width = frame.shape[:2]
 
-        draw_text_center(
+    # --------------------------------------------------------
+    # Draw objects
+    # --------------------------------------------------------
 
+    draw_objects(
+        frame
+    )
+
+    # --------------------------------------------------------
+    # Draw selected wrist
+    # --------------------------------------------------------
+
+    if wrist_display is not None:
+
+        cv2.circle(
             frame,
-
-            line,
-
-            y,
-
-            0.75,
-
-            COLOR_BG_TEXT,
-
-            2
-
+            wrist_display,
+            14,
+            GREEN,
+            -1
         )
 
-        y += 38
-
-
-    if save_success:
-
-        draw_text_center(
-
+        cv2.circle(
             frame,
-
-            "Results saved to dashboard",
-
-            y + 5,
-
-            0.65,
-
-            (0, 255, 0),
-
+            wrist_display,
+            22,
+            WHITE,
             2
-
         )
+
+    # --------------------------------------------------------
+    # Calculate time
+    # --------------------------------------------------------
+
+    elapsed = (
+        time.time()
+        -
+        game_start_time
+    )
+
+    remaining = max(
+        0,
+        SESSION_SECONDS
+        -
+        elapsed
+    )
+
+    attempts = (
+        correct
+        +
+        wrong
+    )
+
+    if attempts > 0:
+
+        accuracy = (
+            correct
+            /
+            attempts
+        ) * 100
 
     else:
 
-        draw_text_center(
+        accuracy = 0
 
-            frame,
+    # --------------------------------------------------------
+    # Top information bar
+    # --------------------------------------------------------
 
-            "CSV save failed - check terminal",
-
-            y + 5,
-
-            0.65,
-
-            (0, 0, 255),
-
-            2
-
-        )
-
-
-    draw_text_center(
-
+    cv2.rectangle(
         frame,
+        (0, 0),
+        (width, 85),
+        BLACK,
+        -1
+    )
 
-        "Press R to PLAY AGAIN   |   Press Q to QUIT",
-
-        frame.shape[0] - 40,
-
+    draw_text(
+        frame,
+        "MOVENTRA",
+        (20, 32),
         0.7,
-
-        (0, 255, 0),
-
+        CYAN,
         2
+    )
 
+    draw_text(
+        frame,
+        f"Score: {score}",
+        (180, 32),
+        0.6,
+        WHITE,
+        2
+    )
+
+    draw_text(
+        frame,
+        f"Accuracy: {accuracy:.1f}%",
+        (300, 32),
+        0.6,
+        WHITE,
+        2
+    )
+
+    draw_text(
+        frame,
+        f"Correct: {correct}",
+        (480, 32),
+        0.6,
+        GREEN,
+        2
+    )
+
+    draw_text(
+        frame,
+        f"Wrong: {wrong}",
+        (620, 32),
+        0.6,
+        RED,
+        2
+    )
+
+    draw_text(
+        frame,
+        f"Time: {remaining:.0f}s",
+        (750, 32),
+        0.6,
+        YELLOW,
+        2
+    )
+
+    draw_text(
+        frame,
+        training_arm,
+        (900, 32),
+        0.6,
+        CYAN,
+        2
+    )
+
+    draw_text(
+        frame,
+        "Q = Quit",
+        (1020, 32),
+        0.5,
+        WHITE,
+        1
+    )
+
+    return frame
+
+
+# ============================================================
+# COMPLETION SCREEN
+# ============================================================
+
+def show_completion(frame):
+
+    height, width = frame.shape[:2]
+
+    overlay = np.zeros_like(
+        frame
+    )
+
+    frame = cv2.addWeighted(
+        frame,
+        0.25,
+        overlay,
+        0.75,
+        0
+    )
+
+    attempts = (
+        correct
+        +
+        wrong
+    )
+
+    if attempts > 0:
+
+        accuracy = (
+            correct
+            /
+            attempts
+        ) * 100
+
+    else:
+
+        accuracy = 0
+
+    draw_text(
+        frame,
+        "SESSION COMPLETE",
+        (
+            width // 2 - 190,
+            130
+        ),
+        1.0,
+        CYAN,
+        3
+    )
+
+    draw_text(
+        frame,
+        f"Score: {score}",
+        (
+            width // 2 - 80,
+            205
+        ),
+        0.8,
+        WHITE,
+        2
+    )
+
+    draw_text(
+        frame,
+        f"Accuracy: {accuracy:.1f}%",
+        (
+            width // 2 - 105,
+            255
+        ),
+        0.75,
+        WHITE,
+        2
+    )
+
+    draw_text(
+        frame,
+        f"Correct: {correct}",
+        (
+            width // 2 - 90,
+            305
+        ),
+        0.7,
+        GREEN,
+        2
+    )
+
+    draw_text(
+        frame,
+        f"Wrong: {wrong}",
+        (
+            width // 2 - 80,
+            355
+        ),
+        0.7,
+        RED,
+        2
+    )
+
+    draw_text(
+        frame,
+        f"Targets Completed: "
+        f"{targets_completed}",
+        (
+            width // 2 - 165,
+            405
+        ),
+        0.7,
+        YELLOW,
+        2
+    )
+
+    draw_text(
+        frame,
+        "Result saved successfully",
+        (
+            width // 2 - 160,
+            475
+        ),
+        0.65,
+        GREEN,
+        2
+    )
+
+    draw_text(
+        frame,
+        "Press R to play again",
+        (
+            width // 2 - 130,
+            530
+        ),
+        0.6,
+        WHITE,
+        2
+    )
+
+    draw_text(
+        frame,
+        "Press Q to quit",
+        (
+            width // 2 - 90,
+            575
+        ),
+        0.6,
+        WHITE,
+        2
+    )
+
+    return frame
+
+
+# ============================================================
+# RESET GAME
+# ============================================================
+
+def reset_game(
+    width,
+    height
+):
+
+    global score
+    global correct
+    global wrong
+    global targets_completed
+    global total_distance
+    global previous_wrist_original
+    global game_start_time
+    global result_saved
+    global last_touch_time
+
+    score = 0
+
+    correct = 0
+
+    wrong = 0
+
+    targets_completed = 0
+
+    total_distance = 0.0
+
+    previous_wrist_original = None
+
+    last_touch_time = 0
+
+    game_start_time = (
+        time.time()
+    )
+
+    result_saved = False
+
+    generate_objects(
+        width,
+        height
     )
 
 
-# ================================================================
+# ============================================================
 # MAIN
-# ================================================================
+# ============================================================
 
 def main():
 
-    # ------------------------------------------------------------
-    # Patient information
-    # ------------------------------------------------------------
+    global difficulty
 
-    print("\n========================================")
+    # --------------------------------------------------------
+    # Patient registration
+    # --------------------------------------------------------
 
-    print(
-        "MOVENTRA - OBJECT SORTING"
-    )
+    get_patient_details()
 
-    print("========================================")
-
-
-    patient_id = input(
-
-        "Enter Patient ID "
-        "(example: P003): "
-
-    ).strip()
-
-
-    patient_name = input(
-
-        "Enter Patient Name: "
-
-    ).strip()
-
-
-    while True:
-
-        session_input = input(
-
-            "Enter Session Number: "
-
-        ).strip()
-
-
-        try:
-
-            session_number = int(
-                session_input
-            )
-
-            break
-
-        except ValueError:
-
-            print(
-                "Please enter a valid "
-                "session number."
-            )
-
-
-    print("----------------------------------------")
-
-    print(
-        f"Patient ID   : "
-        f"{patient_id}"
-    )
-
-    print(
-        f"Patient Name : "
-        f"{patient_name}"
-    )
-
-    print(
-        f"Session      : "
-        f"{session_number}"
-    )
-
-    print("----------------------------------------")
-
-
-    # ------------------------------------------------------------
-    # Check model
-    # ------------------------------------------------------------
+    # --------------------------------------------------------
+    # Check MediaPipe model
+    # --------------------------------------------------------
 
     if not os.path.exists(
         MODEL_PATH
     ):
 
         print(
-            f"ERROR: Pose model not found:"
+            "\nERROR: MediaPipe model not found."
+        )
+
+        print(
+            "Expected location:"
         )
 
         print(
             MODEL_PATH
         )
 
-        sys.exit(1)
-
-
-    # ------------------------------------------------------------
-    # MediaPipe
-    # ------------------------------------------------------------
-
-    base_options = (
-        python.BaseOptions(
-            model_asset_path=
-            MODEL_PATH
+        input(
+            "\nPress Enter to exit..."
         )
-    )
 
+        return
 
-    options = (
-        vision.PoseLandmarkerOptions(
+    # --------------------------------------------------------
+    # Create MediaPipe landmarker
+    # --------------------------------------------------------
 
-            base_options=
-            base_options,
+    try:
 
-            running_mode=
-            vision.RunningMode.VIDEO,
-
-            num_poses=1,
-
-            min_pose_detection_confidence=
-            0.5,
-
-            min_pose_presence_confidence=
-            0.5,
-
-            min_tracking_confidence=
-            0.5
-
+        base_options = (
+            python.BaseOptions(
+                model_asset_path=
+                MODEL_PATH
+            )
         )
-    )
 
+        options = (
+            vision.PoseLandmarkerOptions(
+                base_options=
+                base_options,
 
-    landmarker = (
-        vision.PoseLandmarker
-        .create_from_options(
-            options
+                running_mode=
+                vision.RunningMode.IMAGE,
+
+                num_poses=1
+            )
         )
-    )
 
+        landmarker = (
+            vision.PoseLandmarker
+            .create_from_options(
+                options
+            )
+        )
 
-    # ------------------------------------------------------------
-    # Camera
-    # ------------------------------------------------------------
+    except Exception as e:
+
+        print(
+            "\nERROR creating MediaPipe:"
+        )
+
+        print(e)
+
+        input(
+            "\nPress Enter to exit..."
+        )
+
+        return
+
+    # --------------------------------------------------------
+    # Open camera
+    # --------------------------------------------------------
 
     cap = cv2.VideoCapture(
-        CAM_INDEX
+        CAM_INDEX,
+        cv2.CAP_DSHOW
     )
 
+    if not cap.isOpened():
+
+        cap = cv2.VideoCapture(
+            CAM_INDEX
+        )
 
     if not cap.isOpened():
 
         print(
-            "ERROR: Could not open webcam."
+            "\nERROR: Could not open camera."
         )
 
         landmarker.close()
 
-        sys.exit(1)
+        input(
+            "\nPress Enter to exit..."
+        )
 
+        return
+
+    # --------------------------------------------------------
+    # Camera resolution
+    # --------------------------------------------------------
 
     cap.set(
         cv2.CAP_PROP_FRAME_WIDTH,
@@ -2046,939 +1884,384 @@ def main():
         720
     )
 
-
-    # ------------------------------------------------------------
-    # Screen resolution
-    # ------------------------------------------------------------
-
-    root = tk.Tk()
-
-    root.withdraw()
-
-    screen_w = (
-        root.winfo_screenwidth()
-    )
-
-    screen_h = (
-        root.winfo_screenheight()
-    )
-
-    root.destroy()
-
-
-    # ------------------------------------------------------------
-    # Fullscreen window
-    # ------------------------------------------------------------
+    # --------------------------------------------------------
+    # OpenCV window
+    # --------------------------------------------------------
 
     cv2.namedWindow(
-
         WINDOW_NAME,
-
         cv2.WINDOW_NORMAL
-
     )
 
-
-    cv2.setWindowProperty(
-
+    cv2.resizeWindow(
         WINDOW_NAME,
-
-        cv2.WND_PROP_FULLSCREEN,
-
-        cv2.WINDOW_FULLSCREEN
-
+        1280,
+        720
     )
 
+    # --------------------------------------------------------
+    # Initial state
+    # --------------------------------------------------------
 
-    # ------------------------------------------------------------
-    # Initial game state
-    # ------------------------------------------------------------
-
-    state = STATE_MENU
-
-    difficulty = None
-
-
-    objects = []
-
-    target_index = 0
-
-    obj_radius = 50
-
-    hit_tolerance = 20
-
-
-    score = 0
-
-    correct_count = 0
-
-    wrong_count = 0
-
-    targets_completed = 0
-
-    distance_travelled = 0.0
-
-
-    prev_wrist_pos = None
-
-
-    feedback_active = False
-
-    feedback_type = None
-
-    feedback_until = 0.0
-
-    feedback_touched_index = None
-
-
-    last_touched_index = None
-
-
-    session_start_time = 0.0
-
-    frame_timestamp_ms = 0
-
-
-    results = {}
-
-    save_success = False
-
-    results_saved = False
-
+    state = "MENU"
 
     print(
-        "MOVENTRA - Object Sorting started."
+        "\nCamera started successfully."
     )
 
     print(
-        "Press Q at any time to quit."
+        "Selected training arm:",
+        training_arm
     )
 
+    print(
+        "\nIMPORTANT:"
+    )
 
-    # ============================================================
-    # MAIN LOOP
-    # ============================================================
+    print(
+        "LEFT  -> MediaPipe landmark 15"
+    )
 
-    while True:
+    print(
+        "RIGHT -> MediaPipe landmark 16"
+    )
 
-        ret, raw_frame = cap.read()
+    try:
 
+        while True:
 
-        if not ret:
+            # ------------------------------------------------
+            # Read ORIGINAL camera frame
+            # ------------------------------------------------
 
-            print(
-                "ERROR: Failed to read "
-                "frame from webcam."
+            ret, original_frame = (
+                cap.read()
             )
 
-            break
+            if not ret:
 
-
-        h, w = raw_frame.shape[:2]
-
-
-        # --------------------------------------------------------
-        # MediaPipe detection
-        #
-        # IMPORTANT:
-        # Detection happens BEFORE flipping the frame so landmark
-        # 15 remains the patient's anatomical LEFT wrist.
-        # --------------------------------------------------------
-
-        wrist_pos = None
-
-        wrist_detected = False
-
-
-        if state in (
-
-            STATE_START_SCREEN,
-
-            STATE_PLAYING
-
-        ):
-
-            rgb_frame = cv2.cvtColor(
-
-                raw_frame,
-
-                cv2.COLOR_BGR2RGB
-
-            )
-
-
-            mp_image = mp.Image(
-
-                image_format=
-                mp.ImageFormat.SRGB,
-
-                data=rgb_frame
-
-            )
-
-
-            frame_timestamp_ms += 33
-
-
-            pose_result = (
-                landmarker
-                .detect_for_video(
-
-                    mp_image,
-
-                    frame_timestamp_ms
-
-                )
-            )
-
-
-            if pose_result.pose_landmarks:
-
-                landmarks = (
-                    pose_result
-                    .pose_landmarks[0]
+                print(
+                    "\nUnable to read camera frame."
                 )
 
+                break
 
-                wrist_lm = (
-                    landmarks[
-                        LEFT_WRIST_INDEX
-                    ]
+            height, width = (
+                original_frame.shape[:2]
+            )
+
+            # =================================================
+            # MENU
+            # =================================================
+
+            if state == "MENU":
+
+                # Display can be mirrored
+                display_frame = (
+                    cv2.flip(
+                        original_frame,
+                        1
+                    )
                 )
 
+                display = show_menu(
+                    display_frame
+                )
+
+            # =================================================
+            # START SCREEN
+            # =================================================
+
+            elif state == "START":
+
+                display_frame = (
+                    cv2.flip(
+                        original_frame,
+                        1
+                    )
+                )
+
+                display = (
+                    show_start_screen(
+                        display_frame
+                    )
+                )
+
+            # =================================================
+            # PLAYING
+            # =================================================
+
+            elif state == "PLAYING":
+
+                # ------------------------------------------------
+                # IMPORTANT:
+                #
+                # MediaPipe receives ORIGINAL frame.
+                # We DO NOT flip before detection.
+                # ------------------------------------------------
+
+                rgb_frame = cv2.cvtColor(
+                    original_frame,
+                    cv2.COLOR_BGR2RGB
+                )
+
+                mp_image = mp.Image(
+                    image_format=
+                    mp.ImageFormat.SRGB,
+                    data=rgb_frame
+                )
+
+                result = (
+                    landmarker.detect(
+                        mp_image
+                    )
+                )
+
+                # ------------------------------------------------
+                # Get anatomical selected wrist
+                # ------------------------------------------------
+
+                wrist_original = (
+                    get_wrist_position_original(
+                        result,
+                        width,
+                        height
+                    )
+                )
+
+                # ------------------------------------------------
+                # Calculate movement using original coordinates
+                # ------------------------------------------------
+
+                update_distance(
+                    wrist_original
+                )
+
+                # ------------------------------------------------
+                # Mirror ONLY the display
+                # ------------------------------------------------
+
+                display_frame = (
+                    cv2.flip(
+                        original_frame,
+                        1
+                    )
+                )
+
+                # ------------------------------------------------
+                # Convert wrist position to mirrored display
+                # coordinates
+                # ------------------------------------------------
+
+                wrist_display = (
+                    mirror_point(
+                        wrist_original,
+                        width
+                    )
+                )
+
+                # ------------------------------------------------
+                # Check target using display coordinates
+                # ------------------------------------------------
+
+                check_target_touch(
+                    wrist_display
+                )
+
+                # ------------------------------------------------
+                # Draw game
+                # ------------------------------------------------
+
+                display = show_game(
+                    display_frame,
+                    wrist_display
+                )
+
+                # ------------------------------------------------
+                # Check timer
+                # ------------------------------------------------
+
+                elapsed = (
+                    time.time()
+                    -
+                    game_start_time
+                )
 
                 if (
-
-                    wrist_lm.visibility
-                    is None
-
-                    or
-
-                    wrist_lm.visibility
-                    > 0.3
-
+                    elapsed
+                    >=
+                    SESSION_SECONDS
                 ):
 
-                    raw_x = int(
-                        wrist_lm.x * w
-                    )
+                    save_result()
 
-                    raw_y = int(
-                        wrist_lm.y * h
-                    )
+                    state = "COMPLETE"
 
-
-                    # Mirror X coordinate
-                    # for display.
-
-                    wrist_x = (
-                        w - raw_x
-                    )
-
-                    wrist_y = raw_y
-
-
-                    wrist_pos = (
-
-                        wrist_x,
-
-                        wrist_y
-
-                    )
-
-
-                    wrist_detected = True
-
-
-        # --------------------------------------------------------
-        # Mirror display
-        # --------------------------------------------------------
-
-        frame = cv2.flip(
-            raw_frame,
-            1
-        )
-
-
-        # ========================================================
-        # MENU
-        # ========================================================
-
-        if state == STATE_MENU:
-
-            draw_menu_screen(
-                frame
-            )
-
-
-        # ========================================================
-        # START SCREEN
-        # ========================================================
-
-        elif state == STATE_START_SCREEN:
-
-            draw_start_screen(
-
-                frame,
-
-                difficulty,
-
-                patient_id,
-
-                patient_name,
-
-                session_number
-
-            )
-
-
-            if wrist_detected:
-
-                cv2.circle(
-
-                    frame,
-
-                    wrist_pos,
-
-                    12,
-
-                    COLOR_WRIST_NEUTRAL,
-
-                    -1
-
-                )
+            # =================================================
+            # COMPLETE
+            # =================================================
 
             else:
 
-                draw_wrist_not_detected_warning(
-                    frame
-                )
-
-
-        # ========================================================
-        # PLAYING
-        # ========================================================
-
-        elif state == STATE_PLAYING:
-
-            elapsed = (
-
-                time.time()
-
-                -
-
-                session_start_time
-
-            )
-
-
-            time_left = max(
-
-                0,
-
-                SESSION_SECONDS -
-                elapsed
-
-            )
-
-
-            # ----------------------------------------------------
-            # Feedback timer
-            # ----------------------------------------------------
-
-            if (
-
-                feedback_active
-
-                and
-
-                time.time()
-                >= feedback_until
-
-            ):
-
-                if feedback_type == "correct":
-
-                    objects, target_index, obj_radius, hit_tolerance = generate_objects(
-
-                        difficulty,
-
-                        w,
-
-                        h
-
-                    )
-
-
-                    last_touched_index = None
-
-
-                feedback_active = False
-
-                feedback_type = None
-
-                feedback_touched_index = None
-
-
-            # ----------------------------------------------------
-            # Draw objects
-            # ----------------------------------------------------
-
-            draw_objects(
-
-                frame,
-
-                objects,
-
-                target_index,
-
-                obj_radius,
-
-                feedback_active,
-
-                feedback_type,
-
-                feedback_touched_index
-
-            )
-
-
-            draw_target_instruction(
-
-                frame,
-
-                objects[
-                    target_index
-                ]["color_name"]
-
-            )
-
-
-            # ----------------------------------------------------
-            # Wrist tracking
-            # ----------------------------------------------------
-
-            touched_index = None
-
-
-            if wrist_detected:
-
-                # Distance travelled
-
-                if prev_wrist_pos is not None:
-
-                    step_distance = math.hypot(
-
-                        wrist_pos[0]
-                        -
-                        prev_wrist_pos[0],
-
-                        wrist_pos[1]
-                        -
-                        prev_wrist_pos[1]
-
-                    )
-
-
-                    distance_travelled += (
-                        step_distance
-                    )
-
-
-                prev_wrist_pos = wrist_pos
-
-
-                # ------------------------------------------------
-                # Check object touch
-                # ------------------------------------------------
-
-                if not feedback_active:
-
-                    touched_index = (
-                        find_touched_object(
-
-                            wrist_pos,
-
-                            objects,
-
-                            obj_radius,
-
-                            hit_tolerance
-
-                        )
-                    )
-
-
-                    # Debounce:
-                    # only count when wrist ENTERS
-                    # an object.
-
-                    if (
-
-                        touched_index
-                        is not None
-
-                        and
-
-                        touched_index
-                        != last_touched_index
-
-                    ):
-
-                        # Correct object
-
-                        if (
-                            touched_index
-                            == target_index
-                        ):
-
-                            correct_count += 1
-
-                            targets_completed += 1
-
-                            score += (
-                                DIFFICULTY_SETTINGS[
-                                    difficulty
-                                ]["points"]
-                            )
-
-                            feedback_type = (
-                                "correct"
-                            )
-
-
-                        # Wrong object
-
-                        else:
-
-                            wrong_count += 1
-
-                            feedback_type = (
-                                "wrong"
-                            )
-
-
-                        feedback_active = True
-
-                        feedback_until = (
-
-                            time.time()
-
-                            +
-
-                            FEEDBACK_SECONDS
-
-                        )
-
-
-                        feedback_touched_index = (
-                            touched_index
-                        )
-
-
-                    last_touched_index = (
-                        touched_index
-                    )
-
-
-                # ------------------------------------------------
-                # Wrist marker
-                # ------------------------------------------------
-
-                if feedback_active:
-
-                    if feedback_type == "correct":
-
-                        marker_color = (
-                            COLOR_CORRECT
-                        )
-
-                    else:
-
-                        marker_color = (
-                            COLOR_WRONG
-                        )
-
-                else:
-
-                    marker_color = (
-                        COLOR_WRIST_NEUTRAL
-                    )
-
-
-                cv2.circle(
-
-                    frame,
-
-                    wrist_pos,
-
-                    15,
-
-                    marker_color,
-
-                    -1
-
-                )
-
-
-                cv2.circle(
-
-                    frame,
-
-                    wrist_pos,
-
-                    15,
-
-                    (255, 255, 255),
-
-                    2
-
-                )
-
-
-            else:
-
-                draw_wrist_not_detected_warning(
-                    frame
-                )
-
-                prev_wrist_pos = None
-
-                last_touched_index = None
-
-
-            # ----------------------------------------------------
-            # Feedback banner
-            # ----------------------------------------------------
-
-            if feedback_active:
-
-                draw_feedback_banner(
-
-                    frame,
-
-                    feedback_type
-
-                )
-
-
-            # ----------------------------------------------------
-            # Accuracy
-            # ----------------------------------------------------
-
-            total_attempts = (
-
-                correct_count
-
-                +
-
-                wrong_count
-
-            )
-
-
-            if total_attempts > 0:
-
-                accuracy = (
-
-                    correct_count
-                    /
-                    total_attempts
-                    *
-                    100
-                )
-
-            else:
-
-                accuracy = 0.0
-
-
-            # ----------------------------------------------------
-            # HUD
-            # ----------------------------------------------------
-
-            draw_hud(
-
-                frame,
-
-                score,
-
-                accuracy,
-
-                time_left,
-
-                targets_completed
-
-            )
-
-
-            # ----------------------------------------------------
-            # Session end
-            # ----------------------------------------------------
-
-            if time_left <= 0:
-
-                results = {
-
-                    "difficulty":
-                        difficulty,
-
-                    "score":
-                        score,
-
-                    "accuracy":
-                        accuracy,
-
-                    "correct":
-                        correct_count,
-
-                    "wrong":
-                        wrong_count,
-
-                    "targets_completed":
-                        targets_completed,
-
-                    "time_taken":
-                        elapsed,
-
-                    "distance":
-                        distance_travelled
-
-                }
-
-
-                state = STATE_COMPLETE
-
-
-        # ========================================================
-        # COMPLETE SCREEN
-        # ========================================================
-
-        elif state == STATE_COMPLETE:
-
-            # Save only once
-
-            if not results_saved:
-
-                save_success = (
-                    save_object_sorting_result(
-
-                        patient_id,
-
-                        patient_name,
-
-                        session_number,
-
-                        results["difficulty"],
-
-                        results["score"],
-
-                        results["accuracy"],
-
-                        results["correct"],
-
-                        results["wrong"],
-
-                        results[
-                            "targets_completed"
-                        ],
-
-                        results["time_taken"],
-
-                        results["distance"]
-
+                display_frame = (
+                    cv2.flip(
+                        original_frame,
+                        1
                     )
                 )
 
+                display = (
+                    show_completion(
+                        display_frame
+                    )
+                )
 
-                results_saved = True
+            # ------------------------------------------------
+            # Show camera
+            # ------------------------------------------------
 
-
-            draw_session_complete(
-
-                frame,
-
-                results,
-
-                save_success
-
+            cv2.imshow(
+                WINDOW_NAME,
+                display
             )
 
+            # ------------------------------------------------
+            # Keyboard
+            # ------------------------------------------------
 
-        # ========================================================
-        # DISPLAY
-        # ========================================================
-
-        display_frame = (
-            resize_with_letterbox(
-
-                frame,
-
-                screen_w,
-
-                screen_h
-
+            key = (
+                cv2.waitKey(1)
+                &
+                0xFF
             )
+
+            # =================================================
+            # QUIT
+            # =================================================
+
+            if key == ord("q"):
+
+                if state == "PLAYING":
+
+                    save_result()
+
+                break
+
+            # ESC
+            if key == 27:
+
+                if state == "PLAYING":
+
+                    save_result()
+
+                break
+
+            # =================================================
+            # MENU CONTROLS
+            # =================================================
+
+            if state == "MENU":
+
+                if key == ord("1"):
+
+                    difficulty = "EASY"
+
+                elif key == ord("2"):
+
+                    difficulty = "MEDIUM"
+
+                elif key == ord("3"):
+
+                    difficulty = "HARD"
+
+                elif key == 32:
+
+                    state = "START"
+
+            # =================================================
+            # START SCREEN CONTROLS
+            # =================================================
+
+            elif state == "START":
+
+                if key == 32:
+
+                    reset_game(
+                        width,
+                        height
+                    )
+
+                    state = "PLAYING"
+
+            # =================================================
+            # COMPLETION CONTROLS
+            # =================================================
+
+            elif state == "COMPLETE":
+
+                if key == ord("r"):
+
+                    reset_game(
+                        width,
+                        height
+                    )
+
+                    state = "PLAYING"
+
+    except KeyboardInterrupt:
+
+        print(
+            "\nProgram interrupted."
+        )
+
+        if state == "PLAYING":
+
+            save_result()
+
+    except Exception as e:
+
+        print(
+            "\nUnexpected error:"
+        )
+
+        print(e)
+
+        if state == "PLAYING":
+
+            save_result()
+
+    finally:
+
+        # ----------------------------------------------------
+        # Safety save
+        # ----------------------------------------------------
+
+        if state == "PLAYING":
+
+            save_result()
+
+        # ----------------------------------------------------
+        # Cleanup
+        # ----------------------------------------------------
+
+        cap.release()
+
+        cv2.destroyAllWindows()
+
+        landmarker.close()
+
+        print(
+            "\nCamera closed."
+        )
+
+        print(
+            "MOVENTRA Object Sorting ended."
         )
 
 
-        cv2.imshow(
-
-            WINDOW_NAME,
-
-            display_frame
-
-        )
-
-
-        # ========================================================
-        # KEYBOARD
-        # ========================================================
-
-        key = (
-            cv2.waitKey(1)
-            &
-            0xFF
-        )
-
-
-        # Quit
-
-        if key == ord("q"):
-
-            break
-
-
-        # ========================================================
-        # MENU CONTROLS
-        # ========================================================
-
-        if state == STATE_MENU:
-
-            if key in (
-
-                ord("1"),
-
-                ord("2"),
-
-                ord("3")
-
-            ):
-
-                difficulty = {
-
-                    ord("1"): "EASY",
-
-                    ord("2"): "MEDIUM",
-
-                    ord("3"): "HARD"
-
-                }[key]
-
-
-                state = (
-                    STATE_START_SCREEN
-                )
-
-
-        # ========================================================
-        # START SCREEN CONTROLS
-        # ========================================================
-
-        elif state == STATE_START_SCREEN:
-
-            if key == ord(" "):
-
-                (
-
-                    objects,
-
-                    target_index,
-
-                    obj_radius,
-
-                    hit_tolerance
-
-                ) = generate_objects(
-
-                    difficulty,
-
-                    w,
-
-                    h
-
-                )
-
-
-                score = 0
-
-                correct_count = 0
-
-                wrong_count = 0
-
-                targets_completed = 0
-
-                distance_travelled = 0.0
-
-                prev_wrist_pos = None
-
-                last_touched_index = None
-
-                feedback_active = False
-
-                feedback_type = None
-
-                feedback_touched_index = None
-
-                results_saved = False
-
-                save_success = False
-
-
-                session_start_time = (
-                    time.time()
-                )
-
-
-                state = STATE_PLAYING
-
-
-        # ========================================================
-        # COMPLETE SCREEN CONTROLS
-        # ========================================================
-
-        elif state == STATE_COMPLETE:
-
-            if key == ord("r"):
-
-                state = STATE_MENU
-
-                difficulty = None
-
-                results_saved = False
-
-                save_success = False
-
-
-    # ============================================================
-    # CLEANUP
-    # ============================================================
-
-    cap.release()
-
-    cv2.destroyAllWindows()
-
-    landmarker.close()
-
-
-    print(
-        "MOVENTRA - Object Sorting closed."
-    )
-
-
-# ================================================================
+# ============================================================
 # RUN
-# ================================================================
+# ============================================================
 
 if __name__ == "__main__":
 

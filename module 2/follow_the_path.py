@@ -8,7 +8,7 @@ Camera-based, non-immersive upper-limb rehabilitation game.
 
 Features:
     - MediaPipe Pose Landmarker
-    - Left wrist tracking
+    - LEFT / RIGHT wrist tracking
     - Easy / Medium / Hard difficulty
     - Path-following accuracy
     - Checkpoint completion
@@ -16,6 +16,7 @@ Features:
     - Average path deviation
     - Session timing
     - Patient/session identification
+    - Age and training-arm information
     - Automatic Module 3 CSV integration
 
 Controls:
@@ -38,6 +39,7 @@ import sys
 import numpy as np
 import tkinter as tk
 import pandas as pd
+
 from datetime import date
 
 import mediapipe as mp
@@ -49,21 +51,18 @@ from mediapipe.tasks.python import vision
 # PROJECT PATHS
 # ================================================================
 
-# FYP root folder
 BASE_DIR = os.path.dirname(
     os.path.dirname(
         os.path.abspath(__file__)
     )
 )
 
-# MediaPipe pose model
 MODEL_PATH = os.path.join(
     BASE_DIR,
     "models",
     "pose_landmarker_full.task"
 )
 
-# Module 3 patient progress CSV
 CSV_PATH = os.path.join(
     BASE_DIR,
     "module 3",
@@ -81,8 +80,9 @@ SESSION_SECONDS = 60
 
 WINDOW_NAME = "MOVENTRA - Follow the Path"
 
-# MediaPipe LEFT wrist landmark
+# MediaPipe anatomical wrist landmarks
 LEFT_WRIST_INDEX = 15
+RIGHT_WRIST_INDEX = 16
 
 
 # ================================================================
@@ -114,6 +114,8 @@ CSV_COLUMNS = [
 
     "patient_id",
     "patient_name",
+    "age",
+    "training_arm",
     "session_number",
     "session_date",
 
@@ -151,8 +153,12 @@ def get_patient_session_info():
     print("       MOVENTRA PATIENT SESSION")
     print("========================================")
 
+    # ------------------------------------------------------------
+    # PATIENT ID
+    # ------------------------------------------------------------
+
     patient_id = input(
-        "Enter Patient ID (example: P003): "
+        "Enter Patient ID: "
     ).strip()
 
     while not patient_id:
@@ -162,6 +168,10 @@ def get_patient_session_info():
         patient_id = input(
             "Enter Patient ID: "
         ).strip()
+
+    # ------------------------------------------------------------
+    # PATIENT NAME
+    # ------------------------------------------------------------
 
     patient_name = input(
         "Enter Patient Name: "
@@ -174,6 +184,58 @@ def get_patient_session_info():
         patient_name = input(
             "Enter Patient Name: "
         ).strip()
+
+    # ------------------------------------------------------------
+    # AGE
+    # ------------------------------------------------------------
+
+    while True:
+
+        age_input = input(
+            "Enter Patient Age: "
+        ).strip()
+
+        try:
+
+            age = int(age_input)
+
+            if age < 1 or age > 120:
+
+                print(
+                    "Please enter a valid age between 1 and 120."
+                )
+
+                continue
+
+            break
+
+        except ValueError:
+
+            print(
+                "Please enter a valid age."
+            )
+
+    # ------------------------------------------------------------
+    # TRAINING ARM
+    # ------------------------------------------------------------
+
+    while True:
+
+        training_arm = input(
+            "Enter Training Arm (LEFT/RIGHT): "
+        ).strip().upper()
+
+        if training_arm in ("LEFT", "RIGHT"):
+
+            break
+
+        print(
+            "Please enter LEFT or RIGHT."
+        )
+
+    # ------------------------------------------------------------
+    # SESSION NUMBER
+    # ------------------------------------------------------------
 
     while True:
 
@@ -203,6 +265,10 @@ def get_patient_session_info():
                 "Please enter a valid number."
             )
 
+    # ------------------------------------------------------------
+    # DISPLAY INFORMATION
+    # ------------------------------------------------------------
+
     print("----------------------------------------")
 
     print(
@@ -214,6 +280,14 @@ def get_patient_session_info():
     )
 
     print(
+        f"Age          : {age}"
+    )
+
+    print(
+        f"Training Arm : {training_arm}"
+    )
+
+    print(
         f"Session      : {session_number}"
     )
 
@@ -222,15 +296,36 @@ def get_patient_session_info():
     return (
         patient_id,
         patient_name,
+        age,
+        training_arm,
         session_number
     )
 
 
-# Get patient information once
-# when program starts
-patient_id, patient_name, session_number = (
-    get_patient_session_info()
-)
+# ================================================================
+# GET PATIENT INFORMATION
+# ================================================================
+
+(
+    patient_id,
+    patient_name,
+    patient_age,
+    training_arm,
+    session_number
+) = get_patient_session_info()
+
+
+# ================================================================
+# SELECT WRIST LANDMARK
+# ================================================================
+
+if training_arm == "LEFT":
+
+    SELECTED_WRIST_INDEX = LEFT_WRIST_INDEX
+
+else:
+
+    SELECTED_WRIST_INDEX = RIGHT_WRIST_INDEX
 
 
 # ================================================================
@@ -255,15 +350,6 @@ def generate_path(
     width,
     height
 ):
-
-    """
-    Generate a smooth sine-wave path.
-
-    Returns:
-        path_points
-        checkpoints
-        tolerance_px
-    """
 
     settings = {
 
@@ -326,7 +412,8 @@ def generate_path(
             t *
             (
                 right_margin
-                - left_margin
+                -
+                left_margin
             )
         )
 
@@ -383,11 +470,6 @@ def distance_point_to_polyline(
     point,
     polyline
 ):
-
-    """
-    Calculate shortest distance from
-    wrist to generated path.
-    """
 
     px, py = point
 
@@ -611,8 +693,17 @@ def draw_menu_screen(frame):
 
     draw_text_center(
         frame,
+        f"Training Arm: {training_arm}",
+        180,
+        0.8,
+        (255, 255, 0),
+        2
+    )
+
+    draw_text_center(
+        frame,
         "Select Difficulty",
-        220,
+        240,
         1.0,
         COLOR_BG_TEXT,
         2
@@ -621,7 +712,7 @@ def draw_menu_screen(frame):
     draw_text_center(
         frame,
         "1 - Easy",
-        280,
+        300,
         0.9,
         (0, 255, 0),
         2
@@ -630,7 +721,7 @@ def draw_menu_screen(frame):
     draw_text_center(
         frame,
         "2 - Medium",
-        320,
+        340,
         0.9,
         (0, 165, 255),
         2
@@ -639,7 +730,7 @@ def draw_menu_screen(frame):
     draw_text_center(
         frame,
         "3 - Hard",
-        360,
+        380,
         0.9,
         (0, 0, 255),
         2
@@ -684,11 +775,29 @@ def draw_start_screen(
 
     draw_text_center(
         frame,
-        "Use your LEFT hand to follow the path",
+        f"Use your {training_arm} hand to follow the path",
         140,
         0.7,
         COLOR_BG_TEXT,
         1
+    )
+
+    draw_text_center(
+        frame,
+        f"Patient: {patient_name}",
+        180,
+        0.65,
+        (200, 200, 200),
+        1
+    )
+
+    draw_text_center(
+        frame,
+        f"Training Arm: {training_arm}",
+        215,
+        0.65,
+        (255, 255, 0),
+        2
     )
 
     draw_text_center(
@@ -762,15 +871,11 @@ def draw_path(
 
         if idx < current_cp_index:
 
-            color = (
-                COLOR_CHECKPOINT_DONE
-            )
+            color = COLOR_CHECKPOINT_DONE
 
         elif idx == current_cp_index:
 
-            color = (
-                COLOR_CHECKPOINT
-            )
+            color = COLOR_CHECKPOINT
 
         else:
 
@@ -825,7 +930,7 @@ def draw_hud(
     cv2.rectangle(
         overlay,
         (0, 0),
-        (w, 105),
+        (w, 115),
         (20, 20, 20),
         -1
     )
@@ -839,35 +944,65 @@ def draw_hud(
         frame
     )
 
+    # ------------------------------------------------------------
+    # TRAINING ARM
+    # ------------------------------------------------------------
+
+    cv2.putText(
+        frame,
+        f"Arm: {training_arm}",
+        (20, 25),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.65,
+        (255, 255, 0),
+        2
+    )
+
+    # ------------------------------------------------------------
+    # SCORE
+    # ------------------------------------------------------------
+
     cv2.putText(
         frame,
         f"Score: {score}",
-        (20, 30),
+        (20, 55),
         cv2.FONT_HERSHEY_SIMPLEX,
         0.7,
         (0, 255, 0),
         2
     )
 
+    # ------------------------------------------------------------
+    # ACCURACY
+    # ------------------------------------------------------------
+
     cv2.putText(
         frame,
         f"Accuracy: {accuracy:.0f}%",
-        (20, 58),
+        (20, 85),
         cv2.FONT_HERSHEY_SIMPLEX,
         0.7,
         (0, 200, 255),
         2
     )
 
+    # ------------------------------------------------------------
+    # DEVIATION
+    # ------------------------------------------------------------
+
     cv2.putText(
         frame,
         f"Deviation: {avg_deviation:.1f}px",
-        (20, 88),
+        (20, 110),
         cv2.FONT_HERSHEY_SIMPLEX,
-        0.6,
+        0.55,
         (255, 200, 0),
         2
     )
+
+    # ------------------------------------------------------------
+    # CHECKPOINTS
+    # ------------------------------------------------------------
 
     cp_text = (
         f"Checkpoints: "
@@ -890,13 +1025,17 @@ def draw_hud(
         cp_text,
         (
             w // 2 - tw // 2,
-            30
+            35
         ),
         cv2.FONT_HERSHEY_SIMPLEX,
         0.7,
         COLOR_BG_TEXT,
         2
     )
+
+    # ------------------------------------------------------------
+    # STATUS
+    # ------------------------------------------------------------
 
     status_text = (
         "ON PATH"
@@ -927,13 +1066,17 @@ def draw_hud(
         status_text,
         (
             w // 2 - tw2 // 2,
-            58
+            65
         ),
         cv2.FONT_HERSHEY_SIMPLEX,
         0.6,
         status_color,
         2
     )
+
+    # ------------------------------------------------------------
+    # TIMER
+    # ------------------------------------------------------------
 
     timer_text = (
         f"Time: {int(time_left)}s"
@@ -954,7 +1097,7 @@ def draw_hud(
         timer_text,
         (
             w - tw3 - 20,
-            30
+            35
         ),
         cv2.FONT_HERSHEY_SIMPLEX,
         0.7,
@@ -973,7 +1116,7 @@ def draw_wrist_not_detected_warning(
 
     draw_text_center(
         frame,
-        "LEFT WRIST NOT DETECTED",
+        f"{training_arm} WRIST NOT DETECTED",
         150,
         0.8,
         COLOR_WARNING,
@@ -982,7 +1125,7 @@ def draw_wrist_not_detected_warning(
 
     draw_text_center(
         frame,
-        "Please make sure your left arm is visible",
+        f"Please make sure your {training_arm.lower()} arm is visible",
         180,
         0.6,
         COLOR_WARNING,
@@ -1032,6 +1175,10 @@ def draw_session_complete(
 
     lines = [
 
+        f"Patient: {patient_name}",
+
+        f"Training Arm: {training_arm}",
+
         f"Difficulty: "
         f"{results['difficulty']}",
 
@@ -1055,7 +1202,7 @@ def draw_session_complete(
         f"{results['total_checkpoints']}",
     ]
 
-    y = 145
+    y = 125
 
     for line in lines:
 
@@ -1063,12 +1210,12 @@ def draw_session_complete(
             frame,
             line,
             y,
-            0.72,
+            0.68,
             COLOR_BG_TEXT,
             2
         )
 
-        y += 38
+        y += 32
 
     draw_text_center(
         frame,
@@ -1097,34 +1244,10 @@ def save_follow_path_result(
     results
 ):
 
-    """
-    Save Follow the Path results into
-    module 3/patient_progress.csv.
-
-    The session is identified using:
-
-        patient_id + session_number
-
-    Existing session:
-        Updates only Follow the Path fields.
-
-    New session:
-        Creates a new row.
-
-    IMPORTANT:
-        Numeric CSV columns are converted to proper
-        numeric types BEFORE values are assigned.
-
-        This prevents pandas dtype errors such as:
-
-        Invalid value '9.748399257659912'
-        for dtype 'int64'
-    """
-
     try:
 
         # ========================================================
-        # READ CSV
+        # READ EXISTING CSV
         # ========================================================
 
         if os.path.exists(CSV_PATH):
@@ -1140,20 +1263,32 @@ def save_follow_path_result(
             )
 
         # ========================================================
-        # MAKE SURE ALL REQUIRED COLUMNS EXIST
+        # ADD MISSING COLUMNS
         # ========================================================
 
         for column in CSV_COLUMNS:
 
             if column not in df.columns:
 
-                df[column] = 0
+                if column == "age":
+
+                    df[column] = 0
+
+                elif column == "training_arm":
+
+                    df[column] = ""
+
+                else:
+
+                    df[column] = 0
 
         # ========================================================
-        # DEFINE NUMERIC COLUMNS
+        # INTEGER COLUMNS
         # ========================================================
 
         integer_columns = [
+
+            "age",
 
             "session_number",
 
@@ -1176,6 +1311,10 @@ def save_follow_path_result(
             "sorting_targets_completed"
         ]
 
+        # ========================================================
+        # FLOAT COLUMNS
+        # ========================================================
+
         float_columns = [
 
             "balloon_accuracy",
@@ -1196,7 +1335,7 @@ def save_follow_path_result(
         ]
 
         # ========================================================
-        # CONVERT NUMERIC COLUMNS BEFORE ASSIGNMENT
+        # CONVERT INTEGER COLUMNS
         # ========================================================
 
         for column in integer_columns:
@@ -1211,6 +1350,10 @@ def save_follow_path_result(
                 .fillna(0)
                 .astype(int)
             )
+
+        # ========================================================
+        # CONVERT FLOAT COLUMNS
+        # ========================================================
 
         for column in float_columns:
 
@@ -1267,6 +1410,16 @@ def save_follow_path_result(
 
             df.at[
                 row_index,
+                "age"
+            ] = patient_age
+
+            df.at[
+                row_index,
+                "training_arm"
+            ] = training_arm
+
+            df.at[
+                row_index,
                 "session_date"
             ] = date.today().isoformat()
 
@@ -1278,7 +1431,6 @@ def save_follow_path_result(
 
             new_row = {}
 
-            # Initialize every column
             for column in CSV_COLUMNS:
 
                 if column in integer_columns:
@@ -1294,29 +1446,34 @@ def save_follow_path_result(
                     new_row[column] = ""
 
             # Patient information
-            new_row[
-                "patient_id"
-            ] = patient_id
-
-            new_row[
-                "patient_name"
-            ] = patient_name
-
-            new_row[
-                "session_number"
-            ] = int(
-                session_number
+            new_row["patient_id"] = (
+                patient_id
             )
 
-            new_row[
-                "session_date"
-            ] = date.today().isoformat()
+            new_row["patient_name"] = (
+                patient_name
+            )
 
-            new_row[
-                "is_sample_data"
-            ] = "NO"
+            new_row["age"] = (
+                patient_age
+            )
 
-            # Add row
+            new_row["training_arm"] = (
+                training_arm
+            )
+
+            new_row["session_number"] = (
+                int(session_number)
+            )
+
+            new_row["session_date"] = (
+                date.today().isoformat()
+            )
+
+            new_row["is_sample_data"] = (
+                "NO"
+            )
+
             df = pd.concat(
                 [
                     df,
@@ -1330,7 +1487,7 @@ def save_follow_path_result(
             row_index = df.index[-1]
 
         # ========================================================
-        # PREPARE FOLLOW THE PATH VALUES
+        # FOLLOW THE PATH VALUES
         # ========================================================
 
         path_score = int(
@@ -1360,7 +1517,7 @@ def save_follow_path_result(
         )
 
         # ========================================================
-        # UPDATE FOLLOW THE PATH DATA
+        # SAVE FOLLOW THE PATH DATA
         # ========================================================
 
         df.at[
@@ -1394,6 +1551,35 @@ def save_follow_path_result(
         ] = "NO"
 
         # ========================================================
+        # FINAL PATIENT INFORMATION
+        # ========================================================
+
+        df.at[
+            row_index,
+            "patient_id"
+        ] = patient_id
+
+        df.at[
+            row_index,
+            "patient_name"
+        ] = patient_name
+
+        df.at[
+            row_index,
+            "age"
+        ] = patient_age
+
+        df.at[
+            row_index,
+            "training_arm"
+        ] = training_arm
+
+        df.at[
+            row_index,
+            "session_number"
+        ] = int(session_number)
+
+        # ========================================================
         # FINAL TYPE CONVERSION
         # ========================================================
 
@@ -1425,7 +1611,7 @@ def save_follow_path_result(
             )
 
         # ========================================================
-        # KEEP ORIGINAL CSV COLUMN ORDER
+        # KEEP REQUIRED COLUMN ORDER
         # ========================================================
 
         df = df[
@@ -1433,7 +1619,7 @@ def save_follow_path_result(
         ]
 
         # ========================================================
-        # SAVE CSV
+        # SAVE
         # ========================================================
 
         df.to_csv(
@@ -1442,7 +1628,7 @@ def save_follow_path_result(
         )
 
         # ========================================================
-        # PRINT SUCCESS INFORMATION
+        # SUCCESS MESSAGE
         # ========================================================
 
         print(
@@ -1458,37 +1644,52 @@ def save_follow_path_result(
         )
 
         print(
-            f"Patient : "
-            f"{patient_id} - {patient_name}"
+            f"Patient      : "
+            f"{patient_name}"
         )
 
         print(
-            f"Session : "
+            f"Patient ID   : "
+            f"{patient_id}"
+        )
+
+        print(
+            f"Age          : "
+            f"{patient_age}"
+        )
+
+        print(
+            f"Training Arm : "
+            f"{training_arm}"
+        )
+
+        print(
+            f"Session      : "
             f"{session_number}"
         )
 
         print(
-            f"Score   : "
+            f"Score        : "
             f"{path_score}"
         )
 
         print(
-            f"Accuracy: "
+            f"Accuracy     : "
             f"{path_accuracy:.1f}%"
         )
 
         print(
-            f"Time    : "
+            f"Time         : "
             f"{path_time:.1f} sec"
         )
 
         print(
-            f"Distance: "
+            f"Distance     : "
             f"{path_distance:.0f} px"
         )
 
         print(
-            f"CSV     : "
+            f"CSV          : "
             f"{CSV_PATH}"
         )
 
@@ -1538,7 +1739,7 @@ def main():
         sys.exit(1)
 
     # ============================================================
-    # CREATE MEDIAPIPE POSE LANDMARKER
+    # CREATE MEDIAPIPE LANDMARKER
     # ============================================================
 
     base_options = (
@@ -1667,6 +1868,15 @@ def main():
     )
 
     print(
+        f"Training arm: {training_arm}"
+    )
+
+    print(
+        f"Tracking wrist landmark: "
+        f"{SELECTED_WRIST_INDEX}"
+    )
+
+    print(
         "Press Q at any time to quit."
     )
 
@@ -1701,10 +1911,17 @@ def main():
             STATE_PLAYING
         ):
 
-            # Detection is performed on
-            # the unflipped frame so that
-            # MediaPipe LEFT wrist remains
-            # anatomically correct.
+            # IMPORTANT:
+            #
+            # MediaPipe detection is performed
+            # BEFORE the camera image is mirrored.
+            #
+            # This ensures:
+            #
+            # LEFT wrist  = landmark 15
+            # RIGHT wrist = landmark 16
+            #
+            # according to anatomical orientation.
 
             rgb_frame = cv2.cvtColor(
                 raw_frame,
@@ -1733,11 +1950,19 @@ def main():
                     pose_result.pose_landmarks[0]
                 )
 
+                # ------------------------------------------------
+                # SELECT LEFT OR RIGHT WRIST
+                # ------------------------------------------------
+
                 wrist_lm = (
                     landmarks[
-                        LEFT_WRIST_INDEX
+                        SELECTED_WRIST_INDEX
                     ]
                 )
+
+                # ------------------------------------------------
+                # CHECK VISIBILITY
+                # ------------------------------------------------
 
                 if (
                     wrist_lm.visibility
@@ -1746,6 +1971,7 @@ def main():
                     wrist_lm.visibility > 0.3
                 ):
 
+                    # Coordinates from ORIGINAL frame
                     raw_x = int(
                         wrist_lm.x * w
                     )
@@ -1754,7 +1980,10 @@ def main():
                         wrist_lm.y * h
                     )
 
-                    # Mirror X for display.
+                    # ------------------------------------------------
+                    # MIRROR X FOR DISPLAY
+                    # ------------------------------------------------
+
                     wrist_x = (
                         w - raw_x
                     )
@@ -1806,6 +2035,19 @@ def main():
                     12,
                     COLOR_WRIST_ON,
                     -1
+                )
+
+                cv2.putText(
+                    frame,
+                    f"{training_arm} HAND DETECTED",
+                    (
+                        20,
+                        frame.shape[0] - 100
+                    ),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7,
+                    COLOR_WRIST_ON,
+                    2
                 )
 
             else:
@@ -2077,7 +2319,10 @@ def main():
                         len(checkpoints)
                 }
 
-                # Save only once
+                # ------------------------------------------------
+                # SAVE ONLY ONCE
+                # ------------------------------------------------
+
                 if not results_saved:
 
                     save_success = (
@@ -2142,6 +2387,86 @@ def main():
         # ========================================================
 
         if key == ord("q"):
+
+            # ------------------------------------------------
+            # SAVE PARTIAL SESSION WHEN Q IS PRESSED
+            # ------------------------------------------------
+            # If the game is already playing, save the current
+            # progress before closing. This prevents the session
+            # from being lost when the user quits manually.
+
+            if (
+                state == STATE_PLAYING
+                and not results_saved
+            ):
+
+                elapsed = (
+                    time.time()
+                    -
+                    session_start_time
+                )
+
+                accuracy = (
+
+                    (
+                        on_path_frames
+                        /
+                        total_frames
+                    )
+                    *
+                    100.0
+
+                ) if total_frames > 0 else 0.0
+
+                average_deviation = (
+
+                    total_path_deviation
+                    /
+                    deviation_samples
+
+                ) if deviation_samples > 0 else 0.0
+
+                results = {
+
+                    "difficulty":
+                        difficulty,
+
+                    "score":
+                        score,
+
+                    "accuracy":
+                        accuracy,
+
+                    "average_deviation":
+                        average_deviation,
+
+                    "time_taken":
+                        elapsed,
+
+                    "distance":
+                        distance_travelled,
+
+                    "checkpoints_reached":
+                        current_cp_index,
+
+                    "total_checkpoints":
+                        len(checkpoints)
+                }
+
+                save_success = (
+                    save_follow_path_result(
+                        results
+                    )
+                )
+
+                results_saved = True
+
+                if not save_success:
+
+                    print(
+                        "WARNING: "
+                        "Results were not saved."
+                    )
 
             break
 

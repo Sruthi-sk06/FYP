@@ -45,12 +45,8 @@ DIFFICULTIES = {
 
 BALLOON_RADIUS = 35
 
-# Distance from balloon center at which wrist is considered
-# to have reached the balloon.
 COLLISION_DISTANCE = BALLOON_RADIUS + 20
 
-# Small delay after a successful target before checking again.
-# This prevents one held position from counting repeatedly.
 TARGET_COOLDOWN = 0.35
 
 
@@ -100,13 +96,48 @@ patient_name = input(
 ).strip()
 
 while True:
+    age_input = input(
+        "Enter Patient Age: "
+    ).strip()
+
+    try:
+        age = int(age_input)
+
+        if age < 1:
+            print("Please enter a valid age.")
+            continue
+
+        break
+
+    except ValueError:
+        print("Please enter a valid age.")
+
+
+while True:
+    training_arm = input(
+        "Enter Training Arm (LEFT/RIGHT): "
+    ).strip().upper()
+
+    if training_arm in ["LEFT", "RIGHT"]:
+        break
+
+    print("Please enter LEFT or RIGHT.")
+
+
+while True:
     session_input = input(
         "Enter Session Number: "
     ).strip()
 
     try:
         session_number = int(session_input)
+
+        if session_number < 1:
+            print("Please enter a valid session number.")
+            continue
+
         break
+
     except ValueError:
         print("Please enter a valid session number.")
 
@@ -114,6 +145,8 @@ while True:
 print("----------------------------------------")
 print(f"Patient ID   : {patient_id}")
 print(f"Patient Name : {patient_name}")
+print(f"Age          : {age}")
+print(f"Training Arm : {training_arm}")
 print(f"Session      : {session_number}")
 print("----------------------------------------")
 
@@ -139,6 +172,20 @@ else:
     difficulty = "Easy"
 
 print("Selected difficulty:", difficulty)
+
+
+# ============================================================
+# WRIST LANDMARK
+# ============================================================
+
+LEFT_WRIST_INDEX = 15
+RIGHT_WRIST_INDEX = 16
+
+SELECTED_WRIST_INDEX = (
+    RIGHT_WRIST_INDEX
+    if training_arm == "RIGHT"
+    else LEFT_WRIST_INDEX
+)
 
 
 # ============================================================
@@ -197,8 +244,6 @@ def create_balloon(
         math.sin(angle) * distance
     )
 
-    # Keep balloon inside screen
-
     x = max(
         BALLOON_RADIUS + 10,
         min(
@@ -228,7 +273,6 @@ def draw_balloon(
     y
 ):
 
-    # Balloon body
     cv2.circle(
         frame,
         (x, y),
@@ -237,7 +281,6 @@ def draw_balloon(
         -1
     )
 
-    # Balloon highlight
     cv2.circle(
         frame,
         (x - 10, y - 10),
@@ -246,7 +289,6 @@ def draw_balloon(
         -1
     )
 
-    # Balloon string
     cv2.line(
         frame,
         (x, y + BALLOON_RADIUS),
@@ -263,34 +305,26 @@ def draw_balloon(
 # SAVE RESULTS TO CSV
 # ============================================================
 
-def save_balloon_result():
+def save_balloon_result(final_time=None):
 
     global save_success
 
     try:
 
-        # ----------------------------------------------------
-        # Check CSV
-        # ----------------------------------------------------
-
         if os.path.exists(CSV_PATH):
-
             df = pd.read_csv(CSV_PATH)
-
         else:
-
             df = pd.DataFrame()
 
-
-        # ----------------------------------------------------
-        # Required columns
-        # ----------------------------------------------------
 
         required_columns = [
 
             "patient_id",
             "patient_name",
+            "age",
+            "training_arm",
             "session_number",
+            "session_date",
 
             "balloon_score",
             "balloon_attempts",
@@ -316,10 +350,6 @@ def save_balloon_result():
         ]
 
 
-        # ----------------------------------------------------
-        # Add missing columns
-        # ----------------------------------------------------
-
         for column in required_columns:
 
             if column not in df.columns:
@@ -327,6 +357,8 @@ def save_balloon_result():
                 if column in [
                     "patient_id",
                     "patient_name",
+                    "training_arm",
+                    "session_date",
                     "is_sample_data"
                 ]:
 
@@ -337,12 +369,9 @@ def save_balloon_result():
                     df[column] = 0
 
 
-        # ----------------------------------------------------
-        # Fix column data types
-        # ----------------------------------------------------
-
         integer_columns = [
 
+            "age",
             "session_number",
 
             "balloon_score",
@@ -357,6 +386,7 @@ def save_balloon_result():
             "sorting_wrong",
             "sorting_targets_completed"
         ]
+
 
         float_columns = [
 
@@ -409,6 +439,18 @@ def save_balloon_result():
             .astype(str)
         )
 
+        df["training_arm"] = (
+            df["training_arm"]
+            .fillna("")
+            .astype(str)
+        )
+
+        df["session_date"] = (
+            df["session_date"]
+            .fillna("")
+            .astype(str)
+        )
+
         df["is_sample_data"] = (
             df["is_sample_data"]
             .fillna("NO")
@@ -416,13 +458,14 @@ def save_balloon_result():
         )
 
 
-        # ----------------------------------------------------
-        # Find existing patient + session
-        # ----------------------------------------------------
-
+        # Case-insensitive patient ID matching.
         mask = (
-            (df["patient_id"] == patient_id) &
-            (df["session_number"] == session_number)
+            df["patient_id"]
+            .str.strip()
+            .str.lower()
+            .eq(patient_id.strip().lower())
+        ) & (
+            df["session_number"] == session_number
         )
 
 
@@ -432,8 +475,6 @@ def save_balloon_result():
 
         else:
 
-            # Create new row
-
             new_row = {
                 column: 0
                 for column in required_columns
@@ -441,7 +482,10 @@ def save_balloon_result():
 
             new_row["patient_id"] = patient_id
             new_row["patient_name"] = patient_name
+            new_row["age"] = age
+            new_row["training_arm"] = training_arm
             new_row["session_number"] = session_number
+            new_row["session_date"] = time.strftime("%Y-%m-%d")
             new_row["is_sample_data"] = "NO"
 
             df = pd.concat(
@@ -455,19 +499,44 @@ def save_balloon_result():
             row_index = df.index[-1]
 
 
-        # ----------------------------------------------------
-        # Update patient name
-        # ----------------------------------------------------
-
+        # Update patient/session information.
         df.at[
             row_index,
             "patient_name"
         ] = patient_name
 
+        df.at[
+            row_index,
+            "age"
+        ] = age
 
-        # ----------------------------------------------------
-        # Save Balloon Reach results
-        # ----------------------------------------------------
+        df.at[
+            row_index,
+            "training_arm"
+        ] = training_arm
+
+        if (
+            not str(
+                df.at[row_index, "session_date"]
+            ).strip()
+            or str(
+                df.at[row_index, "session_date"]
+            ).lower() == "nan"
+        ):
+
+            df.at[
+                row_index,
+                "session_date"
+            ] = time.strftime("%Y-%m-%d")
+
+
+        # Final time:
+        # If the game was completed normally, use 60 sec.
+        # If Q was pressed during the game, save the actual
+        # elapsed time.
+        if final_time is None:
+            final_time = GAME_TIME
+
 
         df.at[
             row_index,
@@ -492,18 +561,13 @@ def save_balloon_result():
         df.at[
             row_index,
             "balloon_time_sec"
-        ] = float(GAME_TIME)
-
+        ] = float(final_time)
 
         df.at[
             row_index,
             "is_sample_data"
         ] = "NO"
 
-
-        # ----------------------------------------------------
-        # Save CSV
-        # ----------------------------------------------------
 
         os.makedirs(
             os.path.dirname(CSV_PATH),
@@ -521,28 +585,34 @@ def save_balloon_result():
         print("BALLOON REACH RESULTS SAVED")
         print("========================================")
         print(
-            f"Patient : {patient_id} - {patient_name}"
+            f"Patient     : {patient_id} - {patient_name}"
         )
         print(
-            f"Session : {session_number}"
+            f"Age         : {age}"
         )
         print(
-            f"Score   : {score}"
+            f"Training Arm: {training_arm}"
         )
         print(
-            f"Attempts: {total_attempts}"
+            f"Session     : {session_number}"
         )
         print(
-            f"Targets : {targets_reached}"
+            f"Score       : {score}"
         )
         print(
-            f"Accuracy: {accuracy:.1f}%"
+            f"Attempts    : {total_attempts}"
         )
         print(
-            f"Time    : {GAME_TIME} sec"
+            f"Targets     : {targets_reached}"
         )
         print(
-            f"CSV     : {CSV_PATH}"
+            f"Accuracy    : {accuracy:.1f}%"
+        )
+        print(
+            f"Time        : {final_time:.1f} sec"
+        )
+        print(
+            f"CSV         : {CSV_PATH}"
         )
         print("========================================")
 
@@ -554,7 +624,9 @@ def save_balloon_result():
         save_success = False
 
         print("\n========================================")
-        print("ERROR: Could not save Balloon Reach results.")
+        print(
+            "ERROR: Could not save Balloon Reach results."
+        )
         print("========================================")
         print("Reason:", e)
         print("========================================")
@@ -574,21 +646,21 @@ while cap.isOpened():
         break
 
 
-    # Mirror camera view
-    frame = cv2.flip(
-        frame,
-        1
-    )
+    # --------------------------------------------------------
+    # IMPORTANT:
+    # MediaPipe receives the ORIGINAL camera frame.
+    # The frame is mirrored only for display.
+    # This keeps LEFT/RIGHT anatomical landmarks correct.
+    # --------------------------------------------------------
 
-    height, width, _ = frame.shape
+    detection_frame = frame.copy()
+
+    height, width, _ = detection_frame.shape
 
 
-    # ========================================================
-    # MEDIAPIPE
-    # ========================================================
-
+    # MediaPipe processing
     rgb_frame = cv2.cvtColor(
-        frame,
+        detection_frame,
         cv2.COLOR_BGR2RGB
     )
 
@@ -616,8 +688,18 @@ while cap.isOpened():
     )
 
 
+    # --------------------------------------------------------
+    # Mirror only the displayed frame
+    # --------------------------------------------------------
+
+    frame = cv2.flip(
+        detection_frame,
+        1
+    )
+
+
     # ========================================================
-    # FIND LEFT WRIST
+    # FIND SELECTED WRIST
     # ========================================================
 
     wrist_x = None
@@ -628,28 +710,39 @@ while cap.isOpened():
 
         landmarks = result.pose_landmarks[0]
 
-        # Left wrist = landmark 15
+        if len(landmarks) > SELECTED_WRIST_INDEX:
 
-        wrist = landmarks[15]
+            wrist = landmarks[
+                SELECTED_WRIST_INDEX
+            ]
 
-        wrist_x = int(
-            wrist.x * width
-        )
+            # Landmark coordinates belong to the original
+            # unmirrored camera frame.
 
-        wrist_y = int(
-            wrist.y * height
-        )
+            original_x = int(
+                wrist.x * width
+            )
+
+            original_y = int(
+                wrist.y * height
+            )
+
+            # Convert X to mirrored display coordinates.
+            wrist_x = (
+                width - original_x
+            )
+
+            wrist_y = original_y
 
 
-        # Draw wrist
-
-        cv2.circle(
-            frame,
-            (wrist_x, wrist_y),
-            12,
-            (0, 255, 0),
-            -1
-        )
+            # Draw selected wrist
+            cv2.circle(
+                frame,
+                (wrist_x, wrist_y),
+                12,
+                (0, 255, 0),
+                -1
+            )
 
 
     # ========================================================
@@ -689,10 +782,36 @@ while cap.isOpened():
 
         cv2.putText(
             frame,
+            f"Age: {age}",
+            (
+                width // 2 - 70,
+                275
+            ),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (255, 255, 255),
+            2
+        )
+
+        cv2.putText(
+            frame,
+            f"Training Arm: {training_arm}",
+            (
+                width // 2 - 160,
+                315
+            ),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (255, 255, 255),
+            2
+        )
+
+        cv2.putText(
+            frame,
             f"Session: {session_number}",
             (
                 width // 2 - 120,
-                275
+                355
             ),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.7,
@@ -705,7 +824,7 @@ while cap.isOpened():
             f"Difficulty: {difficulty}",
             (
                 width // 2 - 150,
-                320
+                400
             ),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.9,
@@ -715,10 +834,10 @@ while cap.isOpened():
 
         cv2.putText(
             frame,
-            "Move your LEFT hand to the balloon",
+            f"Move your {training_arm} hand to the balloon",
             (
-                width // 2 - 280,
-                380
+                width // 2 - 290,
+                455
             ),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.8,
@@ -731,7 +850,7 @@ while cap.isOpened():
             "Press SPACE to START",
             (
                 width // 2 - 180,
-                440
+                510
             ),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.9,
@@ -744,7 +863,7 @@ while cap.isOpened():
             "Press Q to QUIT",
             (
                 width // 2 - 140,
-                490
+                560
             ),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.8,
@@ -802,9 +921,6 @@ while cap.isOpened():
             )
 
 
-            # Count an attempt only when the player
-            # actually reaches the target.
-
             if (
                 distance <= COLLISION_DISTANCE
                 and (
@@ -823,8 +939,6 @@ while cap.isOpened():
                     time.time()
                 )
 
-
-                # Create next balloon
 
                 balloon_x, balloon_y = (
                     create_balloon(
@@ -898,8 +1012,18 @@ while cap.isOpened():
 
         cv2.putText(
             frame,
-            f"Difficulty: {difficulty}",
+            f"Training Arm: {training_arm}",
             (30, 210),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.75,
+            (255, 255, 255),
+            2
+        )
+
+        cv2.putText(
+            frame,
+            f"Difficulty: {difficulty}",
+            (30, 250),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.8,
             (255, 255, 255),
@@ -937,8 +1061,6 @@ while cap.isOpened():
 
     if game_finished:
 
-        # Calculate final accuracy
-
         if total_attempts > 0:
 
             accuracy = (
@@ -951,12 +1073,12 @@ while cap.isOpened():
             accuracy = 0.0
 
 
-        # Save results only once
-
         if not results_saved:
 
             save_success = (
-                save_balloon_result()
+                save_balloon_result(
+                    GAME_TIME
+                )
             )
 
             results_saved = True
@@ -1040,7 +1162,6 @@ while cap.isOpened():
             2
         )
 
-
         if save_success:
 
             cv2.putText(
@@ -1070,7 +1191,6 @@ while cap.isOpened():
                 (0, 0, 255),
                 2
             )
-
 
         cv2.putText(
             frame,
@@ -1116,14 +1236,49 @@ while cap.isOpened():
     # KEY CONTROLS
     # ========================================================
 
-    # Quit
+    # --------------------------------------------------------
+    # QUIT
+    # --------------------------------------------------------
 
     if key == ord("q"):
+
+        # If Q is pressed while the game is running,
+        # save the partial/current session first.
+        if (
+            game_started
+            and not game_finished
+            and not results_saved
+        ):
+
+            elapsed_before_quit = (
+                time.time() -
+                start_time
+            )
+
+            if elapsed_before_quit < 0:
+                elapsed_before_quit = 0
+
+            # Recalculate final accuracy.
+            if total_attempts > 0:
+                accuracy = (
+                    targets_reached /
+                    total_attempts
+                ) * 100
+            else:
+                accuracy = 0.0
+
+            save_success = save_balloon_result(
+                elapsed_before_quit
+            )
+
+            results_saved = True
 
         break
 
 
-    # Start game
+    # --------------------------------------------------------
+    # START GAME
+    # --------------------------------------------------------
 
     if (
         key == 32
@@ -1170,7 +1325,9 @@ while cap.isOpened():
         game_finished = False
 
 
-    # Restart
+    # --------------------------------------------------------
+    # RESTART
+    # --------------------------------------------------------
 
     if (
         key == ord("r")

@@ -11,7 +11,8 @@ from mediapipe.tasks.python import vision
 # ============================================================
 # MODEL SETUP
 # ============================================================
-MODEL_PATH = r"C:\Users\smuri\OneDrive\Documents\FYP\models\pose_landmarker_full.task"
+
+MODEL_PATH = r"C:\Users\SKS\OneDrive\Desktop\FYP\models\pose_landmarker_full.task"
 
 base_options = python.BaseOptions(
     model_asset_path=MODEL_PATH
@@ -24,6 +25,482 @@ options = vision.PoseLandmarkerOptions(
 )
 
 pose_landmarker = vision.PoseLandmarker.create_from_options(options)
+
+
+# ============================================================
+# REGISTRATION DATA
+# ============================================================
+
+patient_id = ""
+patient_name = ""
+patient_age = ""
+selected_arm = "Left Arm"
+
+
+# ============================================================
+# REGISTRATION SCREEN
+# ============================================================
+
+def registration_screen():
+
+    global patient_id
+    global patient_name
+    global patient_age
+    global selected_arm
+
+    window_name = "Patient Registration"
+
+    cv2.namedWindow(
+        window_name,
+        cv2.WINDOW_NORMAL
+    )
+
+    cv2.resizeWindow(
+        window_name,
+        900,
+        650
+    )
+
+    # --------------------------------------------------------
+    # Text input variables
+    # --------------------------------------------------------
+
+    fields = {
+        "Patient ID": "",
+        "Patient Name": "",
+        "Age": ""
+    }
+
+    field_names = [
+        "Patient ID",
+        "Patient Name",
+        "Age"
+    ]
+
+    active_field = 0
+
+    selected_arm = "Left Arm"
+
+    message = ""
+
+    # --------------------------------------------------------
+    # Mouse callback
+    # --------------------------------------------------------
+
+    def mouse_callback(event, x, y, flags, param):
+
+        nonlocal active_field
+        global selected_arm
+
+        if event != cv2.EVENT_LBUTTONDOWN:
+            return
+
+        # Patient ID field
+        if 250 <= x <= 750 and 170 <= y <= 220:
+            active_field = 0
+
+        # Patient Name field
+        elif 250 <= x <= 750 and 250 <= y <= 300:
+            active_field = 1
+
+        # Age field
+        elif 250 <= x <= 750 and 330 <= y <= 380:
+            active_field = 2
+
+        # Left arm
+        elif 270 <= x <= 450 and 420 <= y <= 470:
+            selected_arm = "Left Arm"
+
+        # Right arm
+        elif 500 <= x <= 680 and 420 <= y <= 470:
+            selected_arm = "Right Arm"
+
+    cv2.setMouseCallback(
+        window_name,
+        mouse_callback
+    )
+
+    # ========================================================
+    # REGISTRATION LOOP
+    # ========================================================
+
+    while True:
+
+        screen = cv2.imread(
+            # Create a blank screen below instead of relying on
+            # an external image.
+            ""
+        )
+
+        # The above read intentionally fails, so create a blank
+        # screen manually.
+        screen = cv2.rectangle(
+            cv2.UMat(
+                650,
+                900,
+                cv2.CV_8UC3
+            ),
+            (0, 0),
+            (899, 649),
+            (245, 245, 245),
+            -1
+        )
+
+        screen = screen.get()
+
+        # ----------------------------------------------------
+        # Header
+        # ----------------------------------------------------
+
+        cv2.rectangle(
+            screen,
+            (0, 0),
+            (900, 100),
+            (70, 50, 150),
+            -1
+        )
+
+        cv2.putText(
+            screen,
+            "STROKE REHABILITATION SYSTEM",
+            (190, 45),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            1.0,
+            (255, 255, 255),
+            2
+        )
+
+        cv2.putText(
+            screen,
+            "Patient Registration",
+            (320, 82),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.65,
+            (230, 230, 230),
+            2
+        )
+
+        # ----------------------------------------------------
+        # Labels
+        # ----------------------------------------------------
+
+        cv2.putText(
+            screen,
+            "Patient ID",
+            (100, 200),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (40, 40, 40),
+            2
+        )
+
+        cv2.putText(
+            screen,
+            "Patient Name",
+            (100, 280),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (40, 40, 40),
+            2
+        )
+
+        cv2.putText(
+            screen,
+            "Age",
+            (100, 360),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (40, 40, 40),
+            2
+        )
+
+        # ----------------------------------------------------
+        # Input boxes
+        # ----------------------------------------------------
+
+        for i, name in enumerate(field_names):
+
+            y1 = 170 + i * 80
+            y2 = 220 + i * 80
+
+            border_color = (
+                (70, 50, 150)
+                if active_field == i
+                else (150, 150, 150)
+            )
+
+            cv2.rectangle(
+                screen,
+                (250, y1),
+                (750, y2),
+                (255, 255, 255),
+                -1
+            )
+
+            cv2.rectangle(
+                screen,
+                (250, y1),
+                (750, y2),
+                border_color,
+                2
+            )
+
+            cv2.putText(
+                screen,
+                fields[name],
+                (265, y1 + 34),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.65,
+                (30, 30, 30),
+                2
+            )
+
+        # ----------------------------------------------------
+        # Training arm
+        # ----------------------------------------------------
+
+        cv2.putText(
+            screen,
+            "Training Arm",
+            (100, 455),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (40, 40, 40),
+            2
+        )
+
+        # Left arm box
+
+        left_color = (
+            (70, 50, 150)
+            if selected_arm == "Left Arm"
+            else (180, 180, 180)
+        )
+
+        cv2.rectangle(
+            screen,
+            (270, 420),
+            (450, 470),
+            left_color,
+            2
+        )
+
+        cv2.putText(
+            screen,
+            "Left Arm",
+            (310, 453),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.65,
+            left_color,
+            2
+        )
+
+        # Right arm box
+
+        right_color = (
+            (70, 50, 150)
+            if selected_arm == "Right Arm"
+            else (180, 180, 180)
+        )
+
+        cv2.rectangle(
+            screen,
+            (500, 420),
+            (680, 470),
+            right_color,
+            2
+        )
+
+        cv2.putText(
+            screen,
+            "Right Arm",
+            (530, 453),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.65,
+            right_color,
+            2
+        )
+
+        # ----------------------------------------------------
+        # Start session button
+        # ----------------------------------------------------
+
+        cv2.rectangle(
+            screen,
+            (330, 520),
+            (570, 580),
+            (70, 50, 150),
+            -1
+        )
+
+        cv2.putText(
+            screen,
+            "START SESSION",
+            (365, 558),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (255, 255, 255),
+            2
+        )
+
+        # ----------------------------------------------------
+        # Message
+        # ----------------------------------------------------
+
+        if message:
+
+            cv2.putText(
+                screen,
+                message,
+                (250, 615),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.55,
+                (0, 0, 255),
+                2
+            )
+
+        # ----------------------------------------------------
+        # Display
+        # ----------------------------------------------------
+
+        cv2.imshow(
+            window_name,
+            screen
+        )
+
+        key = cv2.waitKey(1) & 0xFF
+
+        # ----------------------------------------------------
+        # Keyboard input
+        # ----------------------------------------------------
+
+        if key != 255:
+
+            # ESC
+            if key == 27:
+
+                cv2.destroyWindow(
+                    window_name
+                )
+
+                return False
+
+            # Backspace
+            elif key == 8:
+
+                current_field = field_names[active_field]
+
+                fields[current_field] = (
+                    fields[current_field][:-1]
+                )
+
+            # Enter
+            elif key == 13:
+
+                if active_field < len(field_names) - 1:
+
+                    active_field += 1
+
+            # Normal character
+            elif 32 <= key <= 126:
+
+                current_field = field_names[active_field]
+
+                # Age should contain numbers only
+                if current_field == "Age":
+
+                    if chr(key).isdigit():
+
+                        fields[current_field] += chr(key)
+
+                else:
+
+                    fields[current_field] += chr(key)
+
+        # ----------------------------------------------------
+        # Start button click detection
+        # ----------------------------------------------------
+
+        mouse_state = cv2.getWindowImageRect(
+            window_name
+        )
+
+        # We handle the button through mouse callback below.
+        # The actual start action is checked using the current
+        # mouse position.
+
+        try:
+
+            _, _, mouse_x, mouse_y = cv2.getWindowImageRect(
+                window_name
+            )
+
+        except:
+
+            mouse_x = 0
+            mouse_y = 0
+
+        # ----------------------------------------------------
+        # Check mouse click using callback state
+        # ----------------------------------------------------
+
+        # This section is handled separately below.
+
+
+        # ----------------------------------------------------
+        # START SESSION using SPACE
+        # ----------------------------------------------------
+
+        if key == ord("s"):
+
+            if (
+                fields["Patient ID"].strip() != ""
+                and
+                fields["Patient Name"].strip() != ""
+                and
+                fields["Age"].strip() != ""
+            ):
+
+                patient_id = fields["Patient ID"].strip()
+
+                patient_name = fields["Patient Name"].strip()
+
+                patient_age = fields["Age"].strip()
+
+                print("\n===================================")
+                print("      PATIENT SESSION STARTED")
+                print("===================================")
+                print(f"Patient ID   : {patient_id}")
+                print(f"Patient Name : {patient_name}")
+                print(f"Age          : {patient_age}")
+                print(f"Training Arm : {selected_arm}")
+                print("===================================\n")
+
+                cv2.destroyWindow(
+                    window_name
+                )
+
+                return True
+
+            else:
+
+                message = "Please fill all patient details."
+
+
+# ============================================================
+# START REGISTRATION
+# ============================================================
+
+registration_success = registration_screen()
+
+
+if not registration_success:
+
+    pose_landmarker.close()
+
+    cv2.destroyAllWindows()
+
+    exit()
 
 
 # ============================================================
@@ -68,8 +545,16 @@ cap = cv2.VideoCapture(0)
 
 window_name = "Stroke Rehabilitation - Movement Analysis"
 
-cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-cv2.resizeWindow(window_name, 1000, 700)
+cv2.namedWindow(
+    window_name,
+    cv2.WINDOW_NORMAL
+)
+
+cv2.resizeWindow(
+    window_name,
+    1000,
+    700
+)
 
 
 # ============================================================
@@ -183,7 +668,10 @@ while True:
 
         break
 
-    frame = cv2.flip(frame, 1)
+    frame = cv2.flip(
+        frame,
+        1
+    )
 
     rgb_frame = cv2.cvtColor(
         frame,
@@ -291,7 +779,9 @@ while True:
             rw
         )
 
-        left_angle_history.append(left_angle)
+        left_angle_history.append(
+            left_angle
+        )
 
         smooth_left_angle = (
             sum(left_angle_history)
@@ -327,10 +817,6 @@ while True:
 
         if calibration_mode:
 
-            # ------------------------------------------------
-            # Save baseline trunk position
-            # ------------------------------------------------
-
             if baseline_shoulder is None:
 
                 baseline_shoulder = shoulder_center
@@ -339,10 +825,6 @@ while True:
 
                 baseline_torso_length = torso_length
 
-
-            # ------------------------------------------------
-            # Existing elbow calibration
-            # ------------------------------------------------
 
             if smooth_left_angle < 90:
 
@@ -420,7 +902,6 @@ while True:
                                 f"{personal_rom:.2f} degrees"
                             )
 
-
             else:
 
                 calibration_bent_frames = 0
@@ -433,10 +914,6 @@ while True:
         # ====================================================
 
         elif calibration_complete:
-
-            # ------------------------------------------------
-            # PERSONALIZED THRESHOLDS
-            # ------------------------------------------------
 
             bent_threshold = (
                 calibration_min_angle + 10
@@ -613,11 +1090,6 @@ while True:
                     trunk_displacement
                 )
 
-
-                # --------------------------------------------
-                # Normalize using torso length
-                # --------------------------------------------
-
                 if baseline_torso_length > 0:
 
                     normalized_trunk = (
@@ -625,9 +1097,6 @@ while True:
                         /
                         baseline_torso_length
                     )
-
-
-                # Track maximum during current rep
 
                 if left_stage == "BENT":
 
@@ -816,10 +1285,30 @@ while True:
 
         cv2.putText(
             frame,
-            f"Left Elbow: {int(smooth_left_angle)} deg",
+            f"Patient: {patient_name}",
             (30, 40),
             cv2.FONT_HERSHEY_SIMPLEX,
-            0.8,
+            0.75,
+            (255, 255, 255),
+            2
+        )
+
+        cv2.putText(
+            frame,
+            f"Training Arm: {selected_arm}",
+            (30, 75),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.75,
+            (0, 255, 255),
+            2
+        )
+
+        cv2.putText(
+            frame,
+            f"Left Elbow: {int(smooth_left_angle)} deg",
+            (30, 110),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
             (0, 255, 0),
             2
         )
@@ -827,9 +1316,9 @@ while True:
         cv2.putText(
             frame,
             f"Right Elbow: {int(right_angle)} deg",
-            (30, 75),
+            (30, 145),
             cv2.FONT_HERSHEY_SIMPLEX,
-            0.8,
+            0.7,
             (0, 255, 0),
             2
         )
@@ -844,7 +1333,7 @@ while True:
             cv2.putText(
                 frame,
                 "CALIBRATION MODE",
-                (30, 120),
+                (30, 190),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.9,
                 (0, 255, 255),
@@ -854,7 +1343,7 @@ while True:
             cv2.putText(
                 frame,
                 f"Movements: {calibration_rep_count}/5",
-                (30, 160),
+                (30, 230),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.8,
                 (0, 255, 255),
@@ -864,7 +1353,7 @@ while True:
             cv2.putText(
                 frame,
                 "Perform comfortable elbow bends",
-                (30, 200),
+                (30, 270),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.7,
                 (255, 255, 255),
@@ -881,7 +1370,7 @@ while True:
             cv2.putText(
                 frame,
                 f"Repetitions: {left_reps}",
-                (30, 120),
+                (30, 190),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 1.0,
                 (0, 255, 255),
@@ -891,7 +1380,7 @@ while True:
             cv2.putText(
                 frame,
                 f"Stage: {left_stage}",
-                (30, 155),
+                (30, 225),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.8,
                 (255, 255, 255),
@@ -901,7 +1390,7 @@ while True:
             cv2.putText(
                 frame,
                 f"Personal ROM: {int(personal_rom)} deg",
-                (30, 190),
+                (30, 260),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.7,
                 (255, 200, 0),
@@ -909,15 +1398,13 @@ while True:
             )
 
 
-            # Last ROM
-
             if len(rep_rom_values) > 0:
 
                 cv2.putText(
                     frame,
                     f"Last Rep ROM: "
                     f"{int(rep_rom_values[-1])} deg",
-                    (30, 225),
+                    (30, 295),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     0.7,
                     (0, 255, 0),
@@ -925,15 +1412,13 @@ while True:
                 )
 
 
-            # Movement time
-
             if len(movement_times) > 0:
 
                 cv2.putText(
                     frame,
                     f"Last Movement: "
                     f"{movement_times[-1]:.2f} sec",
-                    (30, 260),
+                    (30, 330),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     0.7,
                     (0, 255, 255),
@@ -941,13 +1426,11 @@ while True:
                 )
 
 
-            # Wrist speed
-
             cv2.putText(
                 frame,
                 f"Wrist Speed: "
                 f"{average_speed:.1f} px/sec",
-                (30, 295),
+                (30, 365),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.7,
                 (255, 0, 0),
@@ -955,21 +1438,17 @@ while True:
             )
 
 
-            # Trunk displacement
-
             cv2.putText(
                 frame,
                 f"Trunk Movement: "
                 f"{current_trunk_displacement:.1f} px",
-                (30, 330),
+                (30, 400),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.7,
                 (255, 100, 255),
                 2
             )
 
-
-            # Normalized trunk movement
 
             if baseline_torso_length is not None:
 
@@ -983,7 +1462,7 @@ while True:
                     frame,
                     f"Trunk Ratio: "
                     f"{normalized_display:.2f}",
-                    (30, 365),
+                    (30, 435),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     0.7,
                     (255, 100, 255),
@@ -1000,7 +1479,7 @@ while True:
             cv2.putText(
                 frame,
                 "Press C to start calibration",
-                (30, 120),
+                (30, 190),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.8,
                 (0, 255, 255),
@@ -1010,7 +1489,7 @@ while True:
             cv2.putText(
                 frame,
                 "Press R to reset",
-                (30, 160),
+                (30, 230),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.7,
                 (255, 255, 255),
@@ -1025,7 +1504,7 @@ while True:
         cv2.putText(
             frame,
             f"Left Wrist: X={lw[0]} Y={lw[1]}",
-            (30, 405),
+            (30, 475),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.7,
             (255, 0, 0),
@@ -1074,15 +1553,9 @@ while True:
 
         left_stage = "START"
 
-
-        # Reset calibration baseline
-
         baseline_shoulder = None
         baseline_hip = None
         baseline_torso_length = None
-
-
-        # Reset movement metrics
 
         movement_start_time = None
 
@@ -1107,7 +1580,6 @@ while True:
         current_rep_max_trunk_displacement = 0
 
         current_trunk_displacement = 0
-
 
         print("\nCalibration started.")
 
@@ -1142,7 +1614,6 @@ while True:
 
         straight_frames = 0
 
-
         baseline_shoulder = None
         baseline_hip = None
         baseline_torso_length = None
@@ -1170,7 +1641,6 @@ while True:
         current_rep_max_trunk_displacement = 0
 
         current_trunk_displacement = 0
-
 
         print("\nSystem reset.")
 
