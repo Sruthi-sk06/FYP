@@ -2,6 +2,7 @@ import cv2
 import mediapipe as mp
 import math
 import time
+from pathlib import Path
 
 from collections import deque
 from mediapipe.tasks import python
@@ -12,8 +13,7 @@ from mediapipe.tasks.python import vision
 # MODEL SETUP
 # ============================================================
 
-MODEL_PATH = r"C:\Users\SKS\OneDrive\Desktop\FYP\models\pose_landmarker_full.task"
-
+MODEL_PATH = str(Path(__file__).resolve().parent.parent / "models" / "pose_landmarker_full.task")
 base_options = python.BaseOptions(
     model_asset_path=MODEL_PATH
 )
@@ -82,6 +82,7 @@ def registration_screen():
     selected_arm = "Left Arm"
 
     message = ""
+    start_requested = False
 
     # --------------------------------------------------------
     # Mouse callback
@@ -90,6 +91,7 @@ def registration_screen():
     def mouse_callback(event, x, y, flags, param):
 
         nonlocal active_field
+        nonlocal start_requested
         global selected_arm
 
         if event != cv2.EVENT_LBUTTONDOWN:
@@ -115,6 +117,10 @@ def registration_screen():
         elif 500 <= x <= 680 and 420 <= y <= 470:
             selected_arm = "Right Arm"
 
+        # Start session button
+        elif 330 <= x <= 570 and 520 <= y <= 580:
+            start_requested = True
+
     cv2.setMouseCallback(
         window_name,
         mouse_callback
@@ -126,27 +132,8 @@ def registration_screen():
 
     while True:
 
-        screen = cv2.imread(
-            # Create a blank screen below instead of relying on
-            # an external image.
-            ""
-        )
-
-        # The above read intentionally fails, so create a blank
-        # screen manually.
-        screen = cv2.rectangle(
-            cv2.UMat(
-                650,
-                900,
-                cv2.CV_8UC3
-            ),
-            (0, 0),
-            (899, 649),
-            (245, 245, 245),
-            -1
-        )
-
-        screen = screen.get()
+        # Create a blank registration screen without reading any external image.
+        screen = __import__("numpy").full((650, 900, 3), 245, dtype="uint8")
 
         # ----------------------------------------------------
         # Header
@@ -448,23 +435,22 @@ def registration_screen():
 
 
         # ----------------------------------------------------
-        # START SESSION using SPACE
+        # START SESSION: click the button or press S
         # ----------------------------------------------------
 
         if key == ord("s"):
+            start_requested = True
+
+        if start_requested:
 
             if (
                 fields["Patient ID"].strip() != ""
-                and
-                fields["Patient Name"].strip() != ""
-                and
-                fields["Age"].strip() != ""
+                and fields["Patient Name"].strip() != ""
+                and fields["Age"].strip() != ""
             ):
 
                 patient_id = fields["Patient ID"].strip()
-
                 patient_name = fields["Patient Name"].strip()
-
                 patient_age = fields["Age"].strip()
 
                 print("\n===================================")
@@ -476,15 +462,12 @@ def registration_screen():
                 print(f"Training Arm : {selected_arm}")
                 print("===================================\n")
 
-                cv2.destroyWindow(
-                    window_name
-                )
-
+                cv2.destroyWindow(window_name)
                 return True
 
             else:
-
                 message = "Please fill all patient details."
+                start_requested = False
 
 
 # ============================================================
@@ -569,15 +552,15 @@ right_wrist_path = deque(maxlen=50)
 # ANGLE SMOOTHING
 # ============================================================
 
-left_angle_history = deque(maxlen=7)
+angle_history = deque(maxlen=7)
 
 
 # ============================================================
 # REPETITION VARIABLES
 # ============================================================
 
-left_reps = 0
-left_stage = "START"
+reps = 0
+stage = "START"
 
 bent_frames = 0
 straight_frames = 0
@@ -668,10 +651,7 @@ while True:
 
         break
 
-    frame = cv2.flip(
-        frame,
-        1
-    )
+    # No horizontal flip
 
     rgb_frame = cv2.cvtColor(
         frame,
@@ -779,14 +759,16 @@ while True:
             rw
         )
 
-        left_angle_history.append(
-            left_angle
-        )
+        # Use the arm selected during registration for analysis.
+        active_angle = left_angle if selected_arm == "Left Arm" else right_angle
+        active_wrist = lw if selected_arm == "Left Arm" else rw
 
-        smooth_left_angle = (
-            sum(left_angle_history)
+        angle_history.append(active_angle)
+
+        smooth_active_angle = (
+            sum(angle_history)
             /
-            len(left_angle_history)
+            len(angle_history)
         )
 
 
@@ -826,7 +808,7 @@ while True:
                 baseline_torso_length = torso_length
 
 
-            if smooth_left_angle < 90:
+            if smooth_active_angle < 90:
 
                 calibration_bent_frames += 1
 
@@ -843,11 +825,11 @@ while True:
                         calibration_stage = "BENT"
 
                         calibration_angles.append(
-                            smooth_left_angle
+                            smooth_active_angle
                         )
 
 
-            elif smooth_left_angle > 140:
+            elif smooth_active_angle > 140:
 
                 calibration_straight_frames += 1
 
@@ -862,7 +844,7 @@ while True:
                         calibration_rep_count += 1
 
                         calibration_angles.append(
-                            smooth_left_angle
+                            smooth_active_angle
                         )
 
                         if calibration_rep_count >= CALIBRATION_REPS:
@@ -928,29 +910,29 @@ while True:
             # TRACK CURRENT REP ANGLE
             # =================================================
 
-            if left_stage == "BENT":
+            if stage == "BENT":
 
                 if current_rep_min_angle is None:
 
-                    current_rep_min_angle = smooth_left_angle
+                    current_rep_min_angle = smooth_active_angle
 
                 else:
 
                     current_rep_min_angle = min(
                         current_rep_min_angle,
-                        smooth_left_angle
+                        smooth_active_angle
                     )
 
 
                 if current_rep_max_angle is None:
 
-                    current_rep_max_angle = smooth_left_angle
+                    current_rep_max_angle = smooth_active_angle
 
                 else:
 
                     current_rep_max_angle = max(
                         current_rep_max_angle,
-                        smooth_left_angle
+                        smooth_active_angle
                     )
 
 
@@ -958,7 +940,7 @@ while True:
             # BENT POSITION
             # =================================================
 
-            if smooth_left_angle < bent_threshold:
+            if smooth_active_angle < bent_threshold:
 
                 bent_frames += 1
 
@@ -966,15 +948,15 @@ while True:
 
                 if bent_frames >= REQUIRED_FRAMES:
 
-                    if left_stage != "BENT":
+                    if stage != "BENT":
 
-                        left_stage = "BENT"
+                        stage = "BENT"
 
                         movement_start_time = time.time()
 
-                        current_rep_min_angle = smooth_left_angle
+                        current_rep_min_angle = smooth_active_angle
 
-                        current_rep_max_angle = smooth_left_angle
+                        current_rep_max_angle = smooth_active_angle
 
                         current_rep_max_trunk_displacement = 0
 
@@ -982,14 +964,14 @@ while True:
 
                     else:
 
-                        left_stage = "BENT"
+                        stage = "BENT"
 
 
             # =================================================
             # STRAIGHT POSITION
             # =================================================
 
-            elif smooth_left_angle > straight_threshold:
+            elif smooth_active_angle > straight_threshold:
 
                 straight_frames += 1
 
@@ -998,12 +980,12 @@ while True:
                 if (
                     straight_frames >= REQUIRED_FRAMES
                     and
-                    left_stage == "BENT"
+                    stage == "BENT"
                 ):
 
-                    left_stage = "STRAIGHT"
+                    stage = "STRAIGHT"
 
-                    left_reps += 1
+                    reps += 1
 
 
                     # ----------------------------------------
@@ -1098,7 +1080,7 @@ while True:
                         baseline_torso_length
                     )
 
-                if left_stage == "BENT":
+                if stage == "BENT":
 
                     current_rep_max_trunk_displacement = max(
                         current_rep_max_trunk_displacement,
@@ -1116,7 +1098,7 @@ while True:
 
                 distance = calculate_distance(
                     previous_wrist,
-                    lw
+                    active_wrist
                 )
 
                 time_difference = (
@@ -1138,7 +1120,7 @@ while True:
                     )
 
 
-            previous_wrist = lw
+            previous_wrist = active_wrist
 
             previous_time = current_time
 
@@ -1264,21 +1246,20 @@ while True:
         # ====================================================
         # WRIST TRAJECTORY
         # ====================================================
+        selected_wrist_path = (
+            left_wrist_path
+            if selected_arm == "Left Arm"
+            else right_wrist_path
+        )
 
-        for i in range(
-            1,
-            len(left_wrist_path)
-        ):
-
+        for i in range(1, len(selected_wrist_path)):
             cv2.line(
                 frame,
-                left_wrist_path[i - 1],
-                left_wrist_path[i],
+                selected_wrist_path[i - 1],
+                selected_wrist_path[i],
                 (255, 0, 0),
                 2
             )
-
-
         # ====================================================
         # BASIC INFORMATION
         # ====================================================
@@ -1305,7 +1286,7 @@ while True:
 
         cv2.putText(
             frame,
-            f"Left Elbow: {int(smooth_left_angle)} deg",
+            f"{selected_arm} Elbow: {int(smooth_active_angle)} deg",
             (30, 110),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.7,
@@ -1369,7 +1350,7 @@ while True:
 
             cv2.putText(
                 frame,
-                f"Repetitions: {left_reps}",
+                f"Repetitions: {reps}",
                 (30, 190),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 1.0,
@@ -1379,7 +1360,7 @@ while True:
 
             cv2.putText(
                 frame,
-                f"Stage: {left_stage}",
+                f"Stage: {stage}",
                 (30, 225),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.8,
@@ -1503,7 +1484,7 @@ while True:
 
         cv2.putText(
             frame,
-            f"Left Wrist: X={lw[0]} Y={lw[1]}",
+            f"{selected_arm} Wrist: X={active_wrist[0]} Y={active_wrist[1]}",
             (30, 475),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.7,
@@ -1540,6 +1521,7 @@ while True:
         calibration_complete = False
 
         calibration_angles = []
+        angle_history.clear()
 
         calibration_rep_count = 0
 
@@ -1549,9 +1531,9 @@ while True:
 
         calibration_straight_frames = 0
 
-        left_reps = 0
+        reps = 0
 
-        left_stage = "START"
+        stage = "START"
 
         baseline_shoulder = None
         baseline_hip = None
@@ -1597,6 +1579,7 @@ while True:
         calibration_complete = False
 
         calibration_angles = []
+        angle_history.clear()
 
         calibration_rep_count = 0
 
@@ -1606,9 +1589,9 @@ while True:
 
         personal_rom = None
 
-        left_reps = 0
+        reps = 0
 
-        left_stage = "START"
+        stage = "START"
 
         bent_frames = 0
 
